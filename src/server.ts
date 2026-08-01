@@ -2,7 +2,8 @@ import 'dotenv/config';
 import Fastify, { FastifyInstance } from "fastify";
 import fastifyJwt from "@fastify/jwt";
 import { idempotencyPulgins } from "./plugins/idempotency";
-
+import { enqueWorkflowJob } from './queues/workflowQueue';
+import { prisma } from './utils/db';
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
     throw new Error("JWT_SECRET environment variable is required");
@@ -95,5 +96,39 @@ const start=async ()=>{
         process.exit(1);  // kill the process immediately if startup fails
     }
 }
+
+server.post("/api/workflow/:workflowId/execute"
+    ,{preValidation:[server.authenticate]},
+    async (request , reply)=>{
+        const {workflowId}=request.params as {workflowId:any};
+        const organizationId=request.user.organizationId;
+
+        // 1. Verify the workflow exists and belongs to this organization
+        const workflow= await prisma.workflow.findFirst({
+            where:{id:workflowId , organizationId}
+        });
+
+        if(!workflow){
+            return reply.code(404).send({ error: 'Workflow not found.' });
+        }
+
+        // 2. Create a PENDING execution record in the database
+        // Note: We'd typically have an Execution model, but for now we generate a mock ID
+        const executionId=`exec_${Date.now()}`;
+
+        // 3. Drop the job onto the Redis queue
+        await enqueWorkflowJob(executionId ,workflowId , organizationId);
+
+        server.log.info(`Enqueued execution ${executionId} for workflow ${workflowId}`);
+
+        // 4. Return an immediate 202 Accepted response. 
+        // We do NOT wait for the job to finish.
+        return reply.code(202).send({
+            message: 'Workflow execution triggered successfully.',
+            executionId,
+            status: 'PENDING'
+        });
+    }
+);
 
 start();
