@@ -1,0 +1,74 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+model Organization {
+  id              String           @id @default(uuid())
+  name            String
+  createdAt       DateTime         @default(now())
+  
+  // These are the relations. An organization "owns" all of these records.
+  users           User[]
+  workflows       Workflow[]
+  credentials     Credential[]
+  idempotencyKeys IdempotencyKey[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  passwordHash   String
+  createdAt      DateTime     @default(now())
+  
+  // Multi-tenant isolation link
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Credential {
+  id             String       @id @default(uuid())
+  name           String       
+  encryptedData  String       
+  createdAt      DateTime     @default(now())
+  
+  // Multi-tenant isolation link
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Workflow {
+  id             String       @id @default(uuid())
+  name           String
+  description    String?
+  status         String       @default("DRAFT")
+  nodesJson      Json         
+  dagJson        Json         
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  
+  // Multi-tenant isolation link
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model IdempotencyKey {
+  id             String       @id
+  responseBody   Json?        
+  createdAt      DateTime     @default(now())
+  
+  // Multi-tenant isolation link
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
