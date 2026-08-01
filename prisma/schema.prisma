@@ -24,6 +24,8 @@ model Organization {
   workflows       Workflow[]
   credentials     Credential[]
   idempotencyKeys IdempotencyKey[]
+
+  executions      WorkflowExecution[]
 }
 
 model User {
@@ -61,6 +63,8 @@ model Workflow {
   // Multi-tenant isolation link
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  executions      WorkflowExecution[]
 }
 
 model IdempotencyKey {
@@ -71,4 +75,36 @@ model IdempotencyKey {
   // Multi-tenant isolation link
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// Represents a single run of a workflow
+model WorkflowExecution {
+  id             String         @id @default(uuid())
+  workflowId     String
+  workflow       Workflow       @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status         String         @default("PENDING") // PENDING, RUNNING, COMPLETED, FAILED
+  
+  // Multi-tenant isolation link
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  logs           ExecutionLog[]
+  startedAt      DateTime       @default(now())
+  completedAt    DateTime?
+}
+
+
+model ExecutionLog {
+  id             String            @id @default(uuid())
+  executionId    String
+  execution      WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  
+  nodeId         String            // The specific step in the workflow (e.g., "extract_data")
+  status         String            // COMPLETED or FAILED
+  outputData     Json?             // The result of this step (e.g., the LLM summary)
+  
+  createdAt      DateTime          @default(now())
+
+  // Ensure a node is only logged once per execution to prevent duplicate inserts
+  @@unique([executionId, nodeId]) 
 }

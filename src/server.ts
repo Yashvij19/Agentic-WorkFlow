@@ -4,6 +4,8 @@ import fastifyJwt from "@fastify/jwt";
 import { idempotencyPulgins } from "./plugins/idempotency";
 import { enqueWorkflowJob } from './queues/workflowQueue';
 import { prisma } from './utils/db';
+import { workflowQueue } from './queues/workflowQueue';
+import { fail } from 'node:assert';
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
     throw new Error("JWT_SECRET environment variable is required");
@@ -130,5 +132,24 @@ server.post("/api/workflow/:workflowId/execute"
         });
     }
 );
+
+server.get('/api/workflows/failed-jobs' ,{preValidation:[server.authenticate]},async(request , reply)=>{
+
+
+    // BullMQ has a built-in method to grab jobs parked in the failed state (our DLQ)
+    const failedJobs=await workflowQueue.getFailed();
+
+    const formattedJobs = failedJobs.map(job=>({
+        executionId:job.data.executionId,
+        workflowId:job.data.workflowId,
+        failedReasons:job.failedReason, // BullMQ automatically saves the exact error message!
+        failedAt:new Date(job.finishedOn || 0).toString(),
+    }));
+
+    return reply.send({
+        message:`Found ${failedJobs.length} jobs in the Dead Letter Queue.`,
+        deadLetters:formattedJobs
+    });
+})
 
 start();
