@@ -6,6 +6,8 @@ import { enqueWorkflowJob } from './queues/workflowQueue';
 import { prisma } from './utils/db';
 import { workflowQueue } from './queues/workflowQueue';
 import { fail } from 'node:assert';
+import { validateDag } from './utils/dag';
+import { error } from 'node:console';
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
     throw new Error("JWT_SECRET environment variable is required");
@@ -151,5 +153,42 @@ server.get('/api/workflows/failed-jobs' ,{preValidation:[server.authenticate]},a
         deadLetters:formattedJobs
     });
 })
+
+server.post('api/workflows',{preValidation:[server.authenticate]},async(request , reply)=>{
+    const {name, nodes , edges}=request.body as any;
+
+    if(!nodes || !edges){
+        return reply.code(400).send({
+            error:'Missing nodes or edges in payload. '
+        })
+    }
+    // 1. Mathematically prove the graph won't crash our workers
+    const dagCheck = validateDag(nodes, edges);
+    if(!dagCheck.isValid){
+        return reply.code(400).send({
+            error:dagCheck.error
+        })
+    }
+
+    // 2. Save the validated blueprint to the database, locked to this specific user's organization
+
+    const workflow=await prisma.workflow.create({
+        data:{
+            name:name|| "Untitled Agentic Workflow",
+            nodesJson:nodes,
+            dagJson:edges,
+            organizationId:request.user.organizationId,
+            status:'ACTIVE'
+        }
+    });
+
+    server.log.info(`Workflow ${workflow.id} successfully validated and saved.`);
+
+    return reply.send({
+        message: 'Workflow securely deployed!', 
+        workflowId: workflow.id
+    });
+
+});
 
 start();

@@ -2,9 +2,13 @@ import { Worker , Job } from "bullmq";
 import { redisConnection } from "../utils/redis";
 import { WORKFLOW_QUEUE_NAME } from "../queues/workflowQueue";
 import {prisma} from '../utils/db'
+import { injectVariables } from "../utils/interpolation";
 
 // A mock array of steps for our workflow
-const   WORKFLOW_STEPS =["fetch_data" , "analyze_with_ai","send_slack_message"]
+const WORKFLOW_STEPS = [
+  { id: 'node_1', type: 'trigger', data: { output: 'The customer is extremely angry about the late delivery.' } },
+  { id: 'node_2', type: 'agent', data: { prompt: 'Analyze the sentiment of this text: {{node_1.output}}' } }
+];
 const processWorkflow = async (job: Job) => {
 
   const { executionId, workflowId, organizationId } = job.data;
@@ -15,12 +19,20 @@ const processWorkflow = async (job: Job) => {
 
   const pastEvents = await prisma.executionLog.findMany({
     where: { executionId },
-    select: { nodeId: true, status: true }
+    select: { nodeId: true, status: true , outputData: true }
   })
 
-  const completedNodes = new Set(
-    pastEvents.filter(e => e.status === 'COMPLETED').map(e => e.nodeId)
-  )
+  const workflowContext: Record<string, any> = {};
+  const completedNodes = new Set();
+  
+  pastEvents.forEach(e => {
+    if (e.status === 'COMPLETED') {
+      completedNodes.add(e.nodeId);
+      if (e.outputData) {
+        workflowContext[e.nodeId] = (e.outputData as any).result; // Hydrate the memory!
+      }
+    }
+  });
 
   for (const step of WORKFLOW_STEPS) {
     if (completedNodes.has(step)) {
@@ -30,6 +42,12 @@ const processWorkflow = async (job: Job) => {
 
     console.log(`⏳ [Worker] Executing step: '${step}'...`);
 
+    if (step.type === 'agent' && step.data.prompt) {
+      const hydratedPrompt = injectVariables(step.data.prompt, workflowContext);
+      console.log(`🧠 [Agent] Original Prompt: ${step.data.prompt}`);
+      console.log(`✨ [Agent] Hydrated Prompt: ${hydratedPrompt}`);
+    }
+
     // Simulate the heavy AI/Network work
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
@@ -37,12 +55,15 @@ const processWorkflow = async (job: Job) => {
       throw new Error('Simulated API Rate Limit or Timeout!');
     }
 
+    const stepResult = step.type === 'trigger' ? step.data.output : 'Sentiment is: NEGATIVE';
+    workflowContext[step.id] = { output: stepResult };
+
     await prisma.executionLog.create({
       data: {
         executionId,
-        nodeId: step,
+        nodeId: step.id,
         status: 'COMPLETED',
-        outputData: { result: `Success data from ${step}` }
+        outputData: { result: workflowContext[step.id] }
       }
     });
 
