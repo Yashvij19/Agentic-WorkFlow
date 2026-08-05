@@ -1,8 +1,10 @@
 import { Worker , Job } from "bullmq";
-import { redisConnection } from "../utils/redis";
+import { redisConnection, redisPublisher } from "../utils/redis";
 import { WORKFLOW_QUEUE_NAME } from "../queues/workflowQueue";
 import {prisma} from '../utils/db'
 import { injectVariables } from "../utils/interpolation";
+import { executeAiAgent } from "../utils/aiAgent";
+import { timeStamp } from "node:console";
 
 // A mock array of steps for our workflow
 const WORKFLOW_STEPS = [
@@ -39,23 +41,39 @@ const processWorkflow = async (job: Job) => {
       console.log(`⏩ [Worker] Skipping '${step}' - Already completed in a previous run.`);
       continue;
     }
-
+    broadcastTelemetry(executionId, step.id, 'RUNNING', `Starting execution of ${step.id}`);
     console.log(`⏳ [Worker] Executing step: '${step}'...`);
+    let stepResult: any = null;
 
     if (step.type === 'agent' && step.data.prompt) {
       const hydratedPrompt = injectVariables(step.data.prompt, workflowContext);
       console.log(`🧠 [Agent] Original Prompt: ${step.data.prompt}`);
       console.log(`✨ [Agent] Hydrated Prompt: ${hydratedPrompt}`);
+      // const encryptedKey = step.data.encryptedKey || process.env.ENCRYPTED_OPENAI_KEY;
+      const encryptedKey = process.env.ENCRYPTED_OPENAI_KEY;
+
+
+      if (encryptedKey) {
+        console.log(`📡 [Agent] Calling OpenAI API...`);
+        const aiResponse = await executeAiAgent({
+          prompt: hydratedPrompt,
+          encryptedApiKey: encryptedKey
+        });
+        stepResult = aiResponse.output;
+        console.log(`🤖 [Agent Output]: "${stepResult}"`);
+        console.log(`📊 [Metrics] Duration: ${aiResponse.durationMs}ms | Tokens: ${aiResponse.usage.totalTokens}`);
+      }
+      else {
+
+        console.warn(`⚠️ [Agent] No API Key provided. Falling back to mock execution.`);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        stepResult = `[Mock AI Response for: ${hydratedPrompt}]`;
+      }
+    }else{
+      stepResult = step.data.output || 'Step completed successfully.';
     }
 
-    // Simulate the heavy AI/Network work
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    if (Math.random() < 0.1) {
-      throw new Error('Simulated API Rate Limit or Timeout!');
-    }
-
-    const stepResult = step.type === 'trigger' ? step.data.output : 'Sentiment is: NEGATIVE';
+    
     workflowContext[step.id] = { output: stepResult };
 
     await prisma.executionLog.create({
@@ -67,6 +85,7 @@ const processWorkflow = async (job: Job) => {
       }
     });
 
+    broadcastTelemetry(executionId, step.id, 'COMPLETED', `Step ${step.id} finished successfully.`)
     console.log(`✅ [Worker] Finished and saved step: '${step}'`);
 
 
@@ -116,6 +135,18 @@ const {executionId}=job.data
     console.warn(`⚠️ [Retry] Job ${executionId} failed (Attempt ${job.attemptsMade}). Retrying in a few seconds...`);
   }
   });
+
+  function broadcastTelemetry(executionId:string , nodeId:string , status:string , message?:string){
+    const payload=JSON.stringify({
+      executionId,
+      nodeId,
+      status,
+      message, 
+      timeStamp:new Date().toISOString()
+    });
+
+    redisPublisher.publish('telemetry', payload);
+  }
 
 
 

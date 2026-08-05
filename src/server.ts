@@ -8,6 +8,9 @@ import { workflowQueue } from './queues/workflowQueue';
 import { fail } from 'node:assert';
 import { validateDag } from './utils/dag';
 import { error } from 'node:console';
+import { redisSubscriber } from './utils/redis';
+import webSocket from "@fastify/webSocket"
+import { channel } from 'node:diagnostics_channel';
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
     throw new Error("JWT_SECRET environment variable is required");
@@ -50,6 +53,7 @@ server.register(fastifyJwt, {
   secret: jwtSecret,
 });
 
+server.register(webSocket);
 server.register(idempotencyPulgins);
 
 
@@ -154,7 +158,7 @@ server.get('/api/workflows/failed-jobs' ,{preValidation:[server.authenticate]},a
     });
 })
 
-server.post('api/workflows',{preValidation:[server.authenticate]},async(request , reply)=>{
+server.post('/api/workflows',{preValidation:[server.authenticate]},async(request , reply)=>{
     const {name, nodes , edges}=request.body as any;
 
     if(!nodes || !edges){
@@ -190,5 +194,26 @@ server.post('api/workflows',{preValidation:[server.authenticate]},async(request 
     });
 
 });
+
+
+server.register(async function (fastify) {
+    fastify.get("/api/workflow/live",{websocket:true},(connection,req)=>{
+        server.log.info("Frontend Canvas connected to Live Telemetry.");
+
+        redisSubscriber.subscribe('telementry',(err,count)=>{
+            if(err) server.log.error('Failed to subscribe to Redis telemetry: %s', err.message);
+        })
+
+        redisSubscriber.on('message', (channel , message)=>{
+            if(channel==='telementry'){
+                connection.socket.send(message);
+            }
+        });
+
+        connection.socket.on('close', () => {
+            server.log.info('🔌 Frontend Canvas disconnected.');
+            });
+    })
+})
 
 start();
