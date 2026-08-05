@@ -4,6 +4,13 @@ import fastifyJwt from "@fastify/jwt";
 import { idempotencyPulgins } from "./plugins/idempotency";
 import { enqueWorkflowJob } from './queues/workflowQueue';
 import { prisma } from './utils/db';
+import { workflowQueue } from './queues/workflowQueue';
+import { fail } from 'node:assert';
+import { validateDag } from './utils/dag';
+import { error } from 'node:console';
+import { redisSubscriber } from './utils/redis';
+import webSocket from "@fastify/webSocket"
+import { channel } from 'node:diagnostics_channel';
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
     throw new Error("JWT_SECRET environment variable is required");
@@ -46,6 +53,7 @@ server.register(fastifyJwt, {
   secret: jwtSecret,
 });
 
+server.register(webSocket);
 server.register(idempotencyPulgins);
 
 
@@ -130,5 +138,82 @@ server.post("/api/workflow/:workflowId/execute"
         });
     }
 );
+
+server.get('/api/workflows/failed-jobs' ,{preValidation:[server.authenticate]},async(request , reply)=>{
+
+
+    // BullMQ has a built-in method to grab jobs parked in the failed state (our DLQ)
+    const failedJobs=await workflowQueue.getFailed();
+
+    const formattedJobs = failedJobs.map(job=>({
+        executionId:job.data.executionId,
+        workflowId:job.data.workflowId,
+        failedReasons:job.failedReason, // BullMQ automatically saves the exact error message!
+        failedAt:new Date(job.finishedOn || 0).toString(),
+    }));
+
+    return reply.send({
+        message:`Found ${failedJobs.length} jobs in the Dead Letter Queue.`,
+        deadLetters:formattedJobs
+    });
+})
+
+server.post('/api/workflows',{preValidation:[server.authenticate]},async(request , reply)=>{
+    const {name, nodes , edges}=request.body as any;
+
+    if(!nodes || !edges){
+        return reply.code(400).send({
+            error:'Missing nodes or edges in payload. '
+        })
+    }
+    // 1. Mathematically prove the graph won't crash our workers
+    const dagCheck = validateDag(nodes, edges);
+    if(!dagCheck.isValid){
+        return reply.code(400).send({
+            error:dagCheck.error
+        })
+    }
+
+    // 2. Save the validated blueprint to the database, locked to this specific user's organization
+
+    const workflow=await prisma.workflow.create({
+        data:{
+            name:name|| "Untitled Agentic Workflow",
+            nodesJson:nodes,
+            dagJson:edges,
+            organizationId:request.user.organizationId,
+            status:'ACTIVE'
+        }
+    });
+
+    server.log.info(`Workflow ${workflow.id} successfully validated and saved.`);
+
+    return reply.send({
+        message: 'Workflow securely deployed!', 
+        workflowId: workflow.id
+    });
+
+});
+
+
+server.register(async function (fastify) {
+    fastify.get("/api/workflow/live",{websocket:true},(connection,req)=>{
+        server.log.info("Frontend Canvas connected to Live Telemetry.");
+
+        redisSubscriber.subscribe('telementry',(err,count)=>{
+            if(err) server.log.error('Failed to subscribe to Redis telemetry: %s', err.message);
+        })
+
+        redisSubscriber.on('message', (channel , message)=>{
+            if(channel==='telementry'){
+                connection.socket.send(message);
+            }
+        });
+
+        connection.socket.on('close', () => {
+            server.log.info('🔌 Frontend Canvas disconnected.');
+            });
+    })
+})
 
 start();
