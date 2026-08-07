@@ -37,7 +37,7 @@ const processWorkflow = async (job: Job) => {
   });
 
   for (const step of WORKFLOW_STEPS) {
-    if (completedNodes.has(step)) {
+    if (completedNodes.has(step.id)) {
       console.log(`⏩ [Worker] Skipping '${step}' - Already completed in a previous run.`);
       continue;
     }
@@ -104,37 +104,37 @@ const processWorkflow = async (job: Job) => {
 // Initialize the Worker
 const worker=new Worker(WORKFLOW_QUEUE_NAME , processWorkflow,{
     connection:redisConnection, 
-    concurrency:5,
+    concurrency:10,
 })
 
 worker.on('completed',(job)=>{
     console.log(`🟢 [Queue] Job ${job.id} completed successfully.`);
 })
 
-worker.on("failed",async (job,err)=>{
-if(!job) return
+worker.on("failed", async (job, err) => {
+  if (!job) return
 
-const {executionId}=job.data
-// job.attemptsMade tells us how many times it has tried so far
+  const { executionId } = job.data
+  // job.attemptsMade tells us how many times it has tried so far
   // job.opts.attempts tells us the maximum allowed tries (3)  , built in bull mq methods
 
-  if(job.attemptsMade >=(job.opts.attempts|| 3)){
+  if (job.attemptsMade >= (job.opts.attempts || 3)) {
     console.error(`☠️ [DLQ] Job ${executionId} failed permanently. Moving to Dead Letter Queue.`);
     console.error(`   Error details: ${err.message}`);
 
     await prisma.workflowExecution.update({
-      where:{
-        id:executionId
+      where: {
+        id: executionId
       },
-      data:{
-        status:'FAILED',
-        completedAt:new Date()
+      data: {
+        status: 'FAILED',
+        completedAt: new Date()
       }
     });
-  }else{
+  } else {
     console.warn(`⚠️ [Retry] Job ${executionId} failed (Attempt ${job.attemptsMade}). Retrying in a few seconds...`);
   }
-  });
+});
 
   function broadcastTelemetry(executionId:string , nodeId:string , status:string , message?:string){
     const payload=JSON.stringify({
