@@ -29,6 +29,17 @@ const server:FastifyInstance=Fastify({
     },
 })
 
+server.addHook('onRequest', async(request , reply)=>{
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, idempotency-key');
+    // Instantly resolve browser preflight requests
+    if (request.method === 'OPTIONS') {
+        reply.code(204).send();
+        return reply;
+    }
+})
+
 declare module '@fastify/jwt'{
     interface FastifyJWT{
         payload:{
@@ -97,6 +108,7 @@ server.decorate('authenticate' , async function (request:any, reply:any){
     }
 })
 
+
 server.register(authRoutes);
 server.register(workflowRoutes);
 server.register(credentialRoutes);
@@ -106,11 +118,11 @@ const start=async ()=>{
     try{
         // Bind to port 3000 and listen on all network interfaces (0.0.0.0)
         await server.listen({
-            port:3000 , 
+            port:4000 , 
             host:'0.0.0.0'
         });
 
-        server.log.info('Control Tower is ready to accept connections.');
+        server.log.info('server is ready to accept connections.');
     }catch(err){
         server.log.error(err);
         process.exit(1);  // kill the process immediately if startup fails

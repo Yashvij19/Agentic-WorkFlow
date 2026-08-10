@@ -17,18 +17,18 @@ export const workflowQueue = new Queue(WORKFLOW_QUEUE_NAME , {
 
 });
 
-export async function enqueWorkflowJob(executionId:string , workflowId:string , organizationID:string) {
+export async function enqueWorkflowJob(executionId:string , workflowId:string , organizationId:string) {
     
     await workflowQueue.add(`execute-${executionId}`,{
         // 1. The Job Payload (What the worker needs to do the job)
-        executionId , workflowId , organizationID
+        executionId , workflowId , organizationId
     },
     
     // 2. The Job Options (How Redis should handle this specific job)
     {
-        group:{
-            name:organizationID
-        },
+        // group:{
+        //     name:organizationId
+        // },
 
         // We also add a unique jobId to prevent the EXACT same execution from 
       // being accidentally added to the queue twice (Queue-level idempotency!)

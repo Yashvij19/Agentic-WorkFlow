@@ -1,89 +1,107 @@
+// frontend/app/page.tsx
 'use client';
 
-import React, { useCallback, useMemo, useEffect } from 'react'; // <-- Import useEffect
-import ReactFlow, {
-  Background,
-  Controls,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  addEdge,
-  Connection,
-  Edge
-} from 'reactflow';
-import 'reactflow/dist/style.css';
+import Link from 'next/link';
 
-import AgentNode from '../components/nodes/AgentNode';
-
-const initialNodes = [
-  // Ensure the IDs match what your backend worker is executing!
-  { id: 'node_1', position: { x: 100, y: 50 }, data: { label: 'Webhook Trigger ⚡', status: 'PENDING' } },
-  { id: 'node_2', type: 'agent', position: { x: 100, y: 200 }, data: { prompt: 'Analyze the sentiment...', status: 'PENDING' } },
-];
-
-const initialEdges = [{ id: 'e1-2', source: 'node_1', target: 'node_2', animated: true }];
-
-export default function WorkflowBuilderCanvas() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const nodeTypes = useMemo(() => ({ agent: AgentNode }), []);
-
-  // --- NEW: WEBSOCKET CONNECTION LOGIC ---
-  useEffect(() => {
-    // Connect to the Fastify WebSocket route we built in 4.3
-    const ws = new WebSocket('ws://localhost:3000/api/workflows/live');
-
-    ws.onopen = () => console.log('📡 Connected to Mission Control Telemetry');
-
-    ws.onmessage = (event) => {
-      const telemetry = JSON.parse(event.data);
-      console.log('📥 Telemetry Received:', telemetry);
-
-      // Update the specific node's color/status based on the broadcast
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => {
-          if (node.id === telemetry.nodeId) {
-            // Create a brand new copy of the node with the updated status
-            return {
-              ...node,
-              data: { ...node.data, status: telemetry.status },
-            };
-          }
-          return node;
-        })
-      );
-    };
-
-    // Cleanup: Close the connection if the user leaves the page
-    return () => ws.close();
-  }, [setNodes]);
-  // ---------------------------------------
-
-  const onConnect = useCallback(
-    (params: Edge | Connection) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges]
-  );
-
+export default function LandingPage() {
   return (
-    <div className="w-screen h-screen bg-gray-50 flex flex-col">
-      <div className="h-14 bg-white border-b border-gray-200 flex items-center px-6 shadow-sm z-10">
-        <h1 className="text-lg font-bold text-gray-800">Agentic Workflow Builder</h1>
-      </div>
-      <div className="flex-grow w-full h-full">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          fitView
-        >
-          <Background color="#ccc" gap={16} />
-          <Controls />
-          <MiniMap nodeStrokeWidth={3} zoomable pannable />
-        </ReactFlow>
-      </div>
+    <div className="min-h-screen bg-slate-950 text-white font-sans overflow-x-hidden selection:bg-purple-500 selection:text-white">
+      {/* Decorative Radial glow behind hero */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-purple-500/10 rounded-full blur-[120px] pointer-events-none" />
+
+      {/* Header */}
+      <header className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between border-b border-white/5 relative z-10">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🤖</span>
+          <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-purple-400 via-indigo-300 to-indigo-400 bg-clip-text text-transparent">
+            FlowAgent
+          </span>
+        </div>
+        <div className="flex items-center gap-4">
+          <Link 
+            href="/login" 
+            className="text-sm font-medium text-slate-300 hover:text-white transition"
+          >
+            Sign In
+          </Link>
+          <Link 
+            href="/register" 
+            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-sm font-medium rounded-lg shadow-lg shadow-purple-500/20 transition duration-300"
+          >
+            Get Started Free
+          </Link>
+        </div>
+      </header>
+
+      {/* Hero Section */}
+      <section className="max-w-5xl mx-auto px-6 pt-24 pb-20 text-center relative z-10">
+        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-xs font-semibold text-purple-300 mb-6">
+          ✨ Empowering Next-Gen Automations
+        </span>
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-8 leading-none">
+          Build & Orchestrate <br />
+          <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
+            Autonomous AI Workers
+          </span>
+        </h1>
+        <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+          Design multi-agent system workflows using a visual drag-and-drop canvas. Chain triggers, state machines, and LLMs with secure token handling.
+        </p>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <Link 
+            href="/register" 
+            className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-base font-semibold rounded-xl shadow-xl shadow-purple-500/25 transition duration-300"
+          >
+            Launch Builder
+          </Link>
+          <Link 
+            href="/login" 
+            className="w-full sm:w-auto px-8 py-4 bg-slate-900/80 border border-white/10 hover:bg-slate-800 text-base font-semibold rounded-xl transition"
+          >
+            Watch Demo
+          </Link>
+        </div>
+      </section>
+
+      {/* Features Grid */}
+      <section className="max-w-7xl mx-auto px-6 py-20 border-t border-white/5">
+        <h2 className="text-center text-3xl font-bold mb-16 text-slate-200">
+          Everything you need to orchestrate agent networks
+        </h2>
+        <div className="grid md:grid-cols-3 gap-8">
+          {/* Card 1 */}
+          <div className="bg-slate-900/40 border border-white/5 p-8 rounded-2xl backdrop-blur-sm hover:border-purple-500/30 transition duration-300">
+            <span className="text-4xl block mb-6">⚡</span>
+            <h3 className="text-xl font-bold mb-3 text-slate-100">Dynamic Trigger System</h3>
+            <p className="text-slate-400 leading-relaxed text-sm">
+              Start pipelines from REST APIs, webhooks, or scheduled triggers. Hydrate subsequent nodes dynamically.
+            </p>
+          </div>
+
+          {/* Card 2 */}
+          <div className="bg-slate-900/40 border border-white/5 p-8 rounded-2xl backdrop-blur-sm hover:border-purple-500/30 transition duration-300">
+            <span className="text-4xl block mb-6">🧠</span>
+            <h3 className="text-xl font-bold mb-3 text-slate-100">LLM Prompt Chaining</h3>
+            <p className="text-slate-400 leading-relaxed text-sm">
+              Use Gemini, OpenAI, or custom models. Safely store and decrypt tenant API keys to orchestrate cognitive loops.
+            </p>
+          </div>
+
+          {/* Card 3 */}
+          <div className="bg-slate-900/40 border border-white/5 p-8 rounded-2xl backdrop-blur-sm hover:border-purple-500/30 transition duration-300">
+            <span className="text-4xl block mb-6">📊</span>
+            <h3 className="text-xl font-bold mb-3 text-slate-100">Real-Time Telemetry</h3>
+            <p className="text-slate-400 leading-relaxed text-sm">
+              Track token usage, response execution duration, node states, and failed retries live via secure WebSocket channels.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-white/5 py-12 text-center text-slate-500 text-sm">
+        <p>© 2026 FlowAgent. Built with Fastify, ReactFlow, and BullMQ.</p>
+      </footer>
     </div>
   );
 }

@@ -24,7 +24,7 @@ export async function credentialRoutes(server:FastifyInstance) {
     server.get('/api/credentials' , async(request , reply)=>{
         const orgId=request.user.organizationId;
         try{
-            const list=CredentialService.listCredentials(orgId);
+            const list=await CredentialService.listCredentials(orgId);
             return reply.code(200).send({
             credentials: list 
             });
