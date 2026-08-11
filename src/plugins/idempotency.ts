@@ -33,7 +33,7 @@ export const idempotencyPulgins:FastifyPluginAsync=fp(async(server , options)=>{
             }else{
                 // The key exists but has no response yet. This means another worker is currently processing it!
                 reply.code(409).send({ error: 'Conflict: This request is currently being processed.' });
-                reply.code(409).send({ error: 'Conflict: This request is currently being processed.' });
+               
                 return reply;
             }
         }
