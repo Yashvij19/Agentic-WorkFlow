@@ -17,11 +17,11 @@ export const workflowQueue = new Queue(WORKFLOW_QUEUE_NAME , {
 
 });
 
-export async function enqueWorkflowJob(executionId:string , workflowId:string , organizationId:string) {
+export async function enqueWorkflowJob(executionId:string , workflowId:string , organizationId:string , targetNodeId?:string) {
     
     await workflowQueue.add(`execute-${executionId}`,{
         // 1. The Job Payload (What the worker needs to do the job)
-        executionId , workflowId , organizationId
+        executionId , workflowId , organizationId , targetNodeId
     },
     
     // 2. The Job Options (How Redis should handle this specific job)

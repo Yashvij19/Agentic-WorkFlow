@@ -1,7 +1,7 @@
-// frontend/app/workflows/[id]/page.tsx
+// frontend/app/workflow/[id]/page.tsx
 'use client';
 
-import React, { useCallback, useMemo, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import ReactFlow, {
   Background,
@@ -11,26 +11,54 @@ import ReactFlow, {
   useEdgesState,
   addEdge,
   Connection,
-  Edge
+  Edge,
+  ReactFlowInstance
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import Link from 'next/link';
 
+// Custom Flow Nodes
+import TriggerNode from '../../../components/nodes/TriggerNode';
 import AgentNode from '../../../components/nodes/AgentNode';
+import ApiNode from '../../../components/nodes/ApiNode';
+
+// Modular Canvas UI Components
+import CanvasHeader from '../../../components/canvas/CanvasHeader';
+import NodePalette from '../../../components/canvas/NodePalette';
+import PropertiesPanel from '../../../components/canvas/PropertiesPanel';
+import ExecutionHistory from '../../../components/canvas/ExecutionHistory';
 
 export default function WorkflowWorkspace() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
 
+  // DOM Refs & Flow Instance states
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+
+  // React Flow state
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  
+  // Custom sidebar config states
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState('Loading...');
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionMessage, setExecutionMessage] = useState('');
 
-  const nodeTypes = useMemo(() => ({ agent: AgentNode }), []);
+  // Register Custom Node Types
+  const nodeTypes = useMemo(() => ({
+    input: TriggerNode,
+    agent: AgentNode,
+    api: ApiNode
+  }), []);
 
-  // 1. Fetch Workflow from API Gateway
+  // Compute selectedNode object helper
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return nodes.find(n => n.id === selectedNodeId) || null;
+  }, [selectedNodeId, nodes]);
+
+  // 1. Fetch Workflow blueprint
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -56,7 +84,7 @@ export default function WorkflowWorkspace() {
       });
   }, [id, router, setNodes, setEdges]);
 
-  // 2. Connect to Live telemetry WebSocket with JWT token authentication filter
+  // 2. Telemetry WebSockets receiver
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -68,10 +96,8 @@ export default function WorkflowWorkspace() {
     ws.onmessage = (event) => {
       try {
         const telemetry = JSON.parse(event.data);
-        console.log('📥 Live Event:', telemetry);
 
         if (telemetry.status === 'RUNNING' || telemetry.status === 'COMPLETED' || telemetry.status === 'FAILED') {
-          // Reactively paint the node state
           setNodes((currentNodes) =>
             currentNodes.map((node) => {
               if (node.id === telemetry.nodeId) {
@@ -92,12 +118,37 @@ export default function WorkflowWorkspace() {
     return () => ws.close();
   }, [setNodes]);
 
+  // 3. Connect Nodes handler
   const onConnect = useCallback(
-    (params: Edge | Connection) => setEdges((eds) => addEdge(params, eds)),
+    (params: Edge | Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
     [setEdges]
   );
 
-  // 3. Save Node Canvas Setup to DB
+  // 4. Click handlers for panel configuration
+  const onNodeClick = useCallback((event: React.MouseEvent, node: any) => {
+    setSelectedNodeId(node.id);
+  }, []);
+
+  const onPaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  // 5. Update data state from Properties Panel
+  const onUpdateNodeData = useCallback((nodeId: string, updatedData: any) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === nodeId) {
+          return {
+            ...node,
+            data: updatedData,
+          };
+        }
+        return node;
+      })
+    );
+  }, [setNodes]);
+
+  // 6. Save Canvas Blueprint
   const handleSave = async () => {
     const token = localStorage.getItem('token');
     try {
@@ -122,13 +173,13 @@ export default function WorkflowWorkspace() {
     }
   };
 
-  // 4. Trigger Execution Run
+  // 7. Trigger full execution
   const handleExecute = async () => {
     setIsExecuting(true);
-    setExecutionMessage('Pushing job to execution queue...');
+    setExecutionMessage('Pushing job to queue...');
     const token = localStorage.getItem('token');
 
-    // Reset UI nodes state to PENDING before executing
+    // Reset nodes to PENDING status visually
     setNodes((currentNodes) =>
       currentNodes.map((node) => ({
         ...node,
@@ -145,7 +196,7 @@ export default function WorkflowWorkspace() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Trigger failed.');
 
-      setExecutionMessage(`Execution running! ID: ${data.executionId}`);
+      setExecutionMessage(`Running execution...`);
     } catch (err: any) {
       setExecutionMessage(`Failed: ${err.message}`);
     } finally {
@@ -156,60 +207,140 @@ export default function WorkflowWorkspace() {
     }
   };
 
+    // 7.1 Trigger partial execution up to a selected node
+  const handleExecuteUpToNode = async (nodeId: string) => {
+    setIsExecuting(true);
+    setExecutionMessage(`Queuing partial run up to ${nodeId}...`);
+    const token = localStorage.getItem('token');
+
+    // Reset nodes status to PENDING visually
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => ({
+        ...node,
+        data: { ...node.data, status: 'PENDING' },
+      }))
+    );
+
+    try {
+      const res = await fetch(`http://localhost:4000/api/workflow/${id}/execute-node`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ nodeId })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Partial run failed to trigger.');
+
+      setExecutionMessage(`Running partial execution...`);
+    } catch (err: any) {
+      setExecutionMessage(`Failed: ${err.message}`);
+    } finally {
+      setTimeout(() => {
+        setIsExecuting(false);
+        setExecutionMessage('');
+      }, 5000);
+    }
+  };
+
+
+  // 8. Drag and drop HTML5 handlers
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+
+      if (!reactFlowWrapper.current || !reactFlowInstance) return;
+
+      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+      const type = event.dataTransfer.getData('application/reactflow');
+
+      if (!type) return;
+
+      // Project mouse client coordinates into React Flow coordinate system
+      const position = reactFlowInstance.project({
+        x: event.clientX - reactFlowBounds.left,
+        y: event.clientY - reactFlowBounds.top,
+      });
+
+      const newNode = {
+        id: `node_${Date.now()}`,
+        type,
+        position,
+        data: {
+          label: `${type.toUpperCase()} Node`,
+          status: 'PENDING',
+          prompt: type === 'agent' ? 'Analyze data: {{node_1.output}}' : undefined,
+          systemInstruction: type === 'agent' ? 'Be concise.' : undefined,
+          method: type === 'api' ? 'GET' : undefined,
+          url: type === 'api' ? 'https://api.github.com' : undefined,
+          output: type === 'input' ? 'Trigger payload data.' : undefined,
+        },
+      };
+
+      setNodes((nds) => nds.concat(newNode));
+    },
+    [reactFlowInstance, setNodes]
+  );
+
   return (
-    <div className="w-screen h-screen bg-slate-950 flex flex-col text-white font-sans">
-      {/* Workspace Header */}
-      <div className="h-16 bg-slate-900 border-b border-white/5 flex items-center justify-between px-6 shadow-sm z-10">
-        <div className="flex items-center gap-4">
-          <Link href="/workflow" className="text-slate-400 hover:text-white transition text-sm">
-            ⬅️ Dashboard
-          </Link>
-          <span className="text-white/20">|</span>
-          <h1 className="text-base font-bold text-slate-100">{workflowName}</h1>
+    <div className="w-screen h-screen bg-slate-950 flex flex-col text-white font-sans overflow-hidden">
+      {/* 1. Canvas Top Header */}
+      <CanvasHeader
+        title={workflowName}
+        isExecuting={isExecuting}
+        executionMessage={executionMessage}
+        onSave={handleSave}
+        onExecute={handleExecute}
+      />
+
+      <div className="flex flex-grow w-full overflow-hidden relative pb-10">
+        {/* 2. Left Drag and Drop Palette */}
+        <NodePalette />
+
+        {/* 3. ReactFlow Central Canvas Workspace */}
+        <div ref={reactFlowWrapper} className="flex-grow h-full bg-slate-950">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onInit={setReactFlowInstance}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            fitView
+          >
+            <Background color="#222" gap={20} size={1} />
+            <Controls className="bg-slate-900 border border-white/10 rounded-lg text-white" />
+            <MiniMap
+              className="bg-slate-900 border border-white/10 rounded-lg"
+              nodeColor={() => '#4f46e5'}
+              maskColor="rgba(15, 23, 42, 0.8)"
+            />
+          </ReactFlow>
         </div>
 
-        <div className="flex items-center gap-3">
-          {executionMessage && (
-            <span className="text-xs text-purple-300 font-mono px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-lg animate-pulse">
-              {executionMessage}
-            </span>
-          )}
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 bg-slate-850 hover:bg-slate-800 border border-white/10 text-xs font-semibold rounded-lg transition cursor-pointer"
-          >
-            Save Schema
-          </button>
-          <button
-            onClick={handleExecute}
-            disabled={isExecuting}
-            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-xs font-semibold rounded-lg transition duration-300 disabled:opacity-50 cursor-pointer"
-          >
-            {isExecuting ? 'Running...' : 'Execute Workflow ⚡'}
-          </button>
-        </div>
+        {/* 4. Right Properties Inspector Drawer */}
+        <PropertiesPanel
+          selectedNode={selectedNode}
+          onUpdateNodeData={onUpdateNodeData}
+          onClose={() => setSelectedNodeId(null)}
+          onExecuteUpToNode={handleExecuteUpToNode} // <-- ADD THIS LINE
+        />
       </div>
 
-      {/* ReactFlow Canvas Panel */}
-      <div className="flex-grow w-full h-full bg-slate-950 relative">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          fitView
-        >
-          <Background color="#333" gap={20} size={1} />
-          <Controls className="bg-slate-900 border border-white/10 rounded-lg text-white" />
-          <MiniMap
-            className="bg-slate-900 border border-white/10 rounded-lg"
-            nodeColor={() => '#581c87'}
-            maskColor="rgba(15, 23, 42, 0.7)"
-          />
-        </ReactFlow>
-      </div>
+      {/* 5. Bottom Historical Executions Logs Drawer */}
+      <ExecutionHistory workflowId={id} />
     </div>
   );
 }

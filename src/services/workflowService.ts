@@ -70,8 +70,8 @@ export class workflowService{
         // 3. Enqueue the execution task to BullMQ
     // Fix note: passing execution.organizationId ensuring spelling matches org ID structure
 
-    await enqueWorkflowJob(execution.id , workflowId , orgId);
-    return execution;
+            await enqueWorkflowJob(execution.id , workflowId , orgId);
+            return execution;
     }
 
     static async getExecutionHistory(workflowId:string , orgId:string){
@@ -87,5 +87,32 @@ export class workflowService{
                 startedAt:'desc'
             }
         });
+    }
+
+    static async triggerPartialExecution(orgId:string , workflowId:string , targetNodeId:string){
+        const workflow = await prisma.workflow.findFirst({
+            where:{
+                id:workflowId, 
+                organizationId:orgId
+            }
+        });
+
+        if(!workflow){
+            throw new Error("Workflow not found.");
+        }
+
+        // 1. Create a PENDING run in DB
+
+        const execution=await prisma.workflowExecution.create({
+            data:{
+                workflowId,
+                organizationId:orgId,
+                status:'PENDING'
+            }
+        });
+
+        // 2. Enqueue in BullMQ with targetNodeId parameter
+        await enqueWorkflowJob(execution.id, workflowId, orgId, targetNodeId);
+        return execution;
     }
 }

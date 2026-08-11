@@ -64,13 +64,36 @@ function topologicalSort(nodes:any[] , edges:any[]):any[]{
 
 
 }
+
+
+// Recursively collect the target node and all of its ancestors
+
+function resolveAncestors(targetId:string , edges:any[]):Set<string>{
+  const ancestors=new Set<string>();
+  function dfs(nodeId:string){
+    ancestors.add(nodeId);
+
+    const parents=edges.filter(e=>e.target===nodeId).map(e=>e.source);
+
+    parents.forEach(pId=>{
+      if(!ancestors.has(pId)){
+        dfs(pId);
+      }
+    });
+  }
+  dfs(targetId);
+  return ancestors;
+}
 const processWorkflow = async (job: Job) => {
 
-  const { executionId, workflowId, organizationId } = job.data;
+  const { executionId, workflowId, organizationId  , targetNodeId} = job.data;
 
   console.log(`\n👨‍🍳 [Worker] Picked up execution: ${executionId}`);
   console.log(`📂 [Worker] Workflow ID: ${workflowId} | Org ID: ${organizationId}`);
   const orgId=organizationId;
+   if (targetNodeId){
+      console.log(`🎯 [Worker] Target execution node: ${targetNodeId}`);
+   } 
 
   // 1. Mark the execution state as RUNNING in DB
       await prisma.workflowExecution.update({
@@ -102,7 +125,17 @@ const processWorkflow = async (job: Job) => {
   // 3. Resolve execution order
   const sortedNodes=topologicalSort(nodes , edges);
 
-  // 4. Hydrate previous steps' logs (idempotency/memory recovery)
+  // 4. Resolve sub-graph filter if targetNodeId is specified
+
+  let nodesToExecute=sortedNodes;
+  if(targetNodeId){
+    console.log(`🎯 [Worker] Computing dependency tree for node: ${targetNodeId}`);
+    const ancestors = resolveAncestors(targetNodeId , edges);
+    nodesToExecute=sortedNodes.filter(node=>ancestors.has(node.id));
+    console.log(`🎯 [Worker] Sub-graph execution path: ${nodesToExecute.map(n => n.id).join(' -> ')}`);
+  }
+
+  // 5. Hydrate previous steps' logs (idempotency/memory recovery)
 
   const pastLogs=await prisma.executionLog.findMany({
     where:{
@@ -126,8 +159,8 @@ const processWorkflow = async (job: Job) => {
     }
   });
 
-  // 5. Execute steps sequentially
-  for (const node of sortedNodes) {
+  // 6. Execute steps sequentially
+  for (const node of nodesToExecute) {
     if (completedNodes.has(node.id)) {
       console.log(`⏩ [Worker] Skipping '${node.id}' - Already completed in a previous run.`);
       continue;
@@ -174,8 +207,27 @@ try{
         await new Promise((resolve) => setTimeout(resolve, 1500));
         stepResult = `[Mock AI Response for: ${hydratedPrompt}]`;
       }
+
+    }else if (node.type==='api'){
+      const rawUrl=node.data.url;
+      const hydratedUrl=injectVariables(rawUrl , workflowContext);
+      const method=node.data.method;
+
+      console.log(`📡 [API Node] Sending ${method} request to URL: ${hydratedUrl}`);
+      const response=await fetch(hydratedUrl ,{method});
+      let responseData:any;
+      try{
+        responseData=await response.json();
+      }catch{
+        responseData=await response.text();
+      }
+      if(!response.ok){
+        throw new Error(`API Node query failed (HTTP ${response.status}): ${JSON.stringify(responseData)}`);
+      }
+        console.log(`✅ [API Node] Response Status: ${response.status}`);
+        stepResult = responseData;
     }else{
-      stepResult = node.data.output || '';
+      stepResult=node.data?.output ;
     }
 
     // Save step result into execution context

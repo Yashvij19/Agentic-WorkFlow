@@ -171,4 +171,28 @@ export async function workflowRoutes(server: FastifyInstance) {
 
     });
 
+    server.post("/api/workflow/:id/execute-node",async(request, reply)=>{
+        const orgId=request.user.organizationId;
+        const {id}=request.params as any;
+        const {nodeId}=request.body as any;  // The node we want to run up to
+
+        
+        if (!nodeId) {
+            return reply.code(400).send({ error: 'nodeId is required in the request body.' });
+        }
+
+        try{
+            const execution=await workflowService.triggerPartialExecution(orgId ,id, nodeId );
+               return reply.code(202).send({
+                message: `Partial workflow execution up to node '${nodeId}' triggered.`,
+                executionId: execution.id,
+                status: execution.status,
+            });
+        }catch(err: any){
+             return reply.code(400).send({ error: err.message });
+        }
+    });
+
+    
+
 }
