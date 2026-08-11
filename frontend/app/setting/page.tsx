@@ -67,85 +67,116 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center font-semibold text-sm">
-        Loading secure parameters...
+      <div className="min-h-screen bg-[#030617] text-[#98A4C2] flex items-center justify-center font-semibold text-xs tracking-wider uppercase">
+        <div className="flex items-center gap-3">
+          <div className="w-4 h-4 border border-white/20 border-t-white rounded-full animate-spin" />
+          Loading secure parameters...
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans">
-      <nav className="border-b border-white/5 bg-slate-900/40 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/workflow" className="flex items-center gap-3 cursor-pointer">
-            <span className="text-xl">🤖</span>
-            <span className="font-bold text-lg bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">
+    <div className="min-h-screen bg-[#030617] text-[#F5F7FF] font-sans selection:bg-[#8B5CF6]/30 selection:text-white pb-20">
+      {/* Navbar matching dashboard compact styling */}
+      <nav className="border-b border-white/[0.05] bg-[#030617]/90 backdrop-blur-md sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Link href="/" className="font-bold tracking-tight text-white text-base hover:text-slate-200 transition-colors duration-200">
               FlowAgent
-            </span>
-          </Link>
-          <Link href="/workflow" className="text-sm text-slate-300 hover:text-white transition">
-            ⬅️ Back to Workflows
+            </Link>
+          </div>
+          <Link 
+            href="/workflow" 
+            className="glass-button px-4 py-2 text-[10px] font-bold tracking-wider uppercase rounded-xl flex items-center gap-1.5 cursor-pointer text-white"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+            </svg>
+            Back to Workflows
           </Link>
         </div>
       </nav>
 
-      <main className="max-w-4xl mx-auto px-6 py-12 grid md:grid-cols-2 gap-8">
+      <main className="max-w-4xl mx-auto px-6 py-12 grid md:grid-cols-2 gap-8 relative z-10">
         {/* Save API Key Form */}
-        <div className="bg-slate-900/50 border border-white/5 p-6 rounded-2xl shadow-xl">
-          <h2 className="text-xl font-bold mb-2">Configure LLM Key</h2>
-          <p className="text-slate-400 text-xs mb-6">Keys are encrypted symmetrically before database insert.</p>
+        <div className="bg-[#080D1D] border border-white/[0.07] p-8 rounded-2xl shadow-xl flex flex-col justify-between relative group hover:border-white/15 transition-all duration-300">
+          <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
+          
+          <div>
+            <h2 className="text-xl font-bold text-white mb-1.5">Configure LLM Key</h2>
+            <p className="text-[#98A4C2] text-xs font-light mb-6">Keys are encrypted symmetrically before database insert.</p>
 
-          {error && <div className="bg-red-500/10 border border-red-500/20 text-red-200 text-xs px-4 py-3 rounded-lg mb-4">⚠️ {error}</div>}
-          {success && <div className="bg-green-500/10 border border-green-500/20 text-green-200 text-xs px-4 py-3 rounded-lg mb-4">✅ {success}</div>}
+            {error && (
+              <div className="bg-[#EF4444]/10 border border-[#EF4444]/20 text-red-200 text-xs px-4 py-3 rounded-lg mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-[#EF4444] shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                {error}
+              </div>
+            )}
+            {success && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs px-4 py-3 rounded-lg mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {success}
+              </div>
+            )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Credential Name</label>
-              <select
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl focus:border-purple-500 focus:outline-none transition text-sm text-white"
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2">Credential Name</label>
+                <select
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl focus:border-[#8B5CF6]/50 focus:outline-none transition text-sm text-white cursor-pointer"
+                >
+                  <option value="GEMINI_API_KEY">GEMINI_API_KEY (Recommended)</option>
+                  <option value="OPENAI_API_KEY">OPENAI_API_KEY</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2">API Secret Key</label>
+                <input
+                  type="password"
+                  required
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="w-full px-4 py-3 glass-input rounded-xl text-sm focus:outline-none"
+                  placeholder="AIzaSy..."
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 mt-4 bg-gradient-to-r from-violet-700 via-purple-600 to-indigo-700 hover:from-violet-600 hover:via-purple-500 hover:to-indigo-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition duration-300 border border-white/10 hover:border-white/20 shadow-[0_4px_20px_rgba(139,92,246,0.15)] hover:shadow-[0_4px_24px_rgba(139,92,246,0.25)] hover:-translate-y-[1px] cursor-pointer"
               >
-                <option value="GEMINI_API_KEY">GEMINI_API_KEY (Recommended)</option>
-                <option value="OPENAI_API_KEY">OPENAI_API_KEY</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">API Secret Key</label>
-              <input
-                type="password"
-                required
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl focus:border-purple-500 focus:outline-none transition text-sm text-white"
-                placeholder="AIzaSy..."
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 font-semibold rounded-xl transition duration-300 text-sm cursor-pointer"
-            >
-              Save Credentials
-            </button>
-          </form>
+                Save Credentials
+              </button>
+            </form>
+          </div>
         </div>
 
         {/* Existing Credentials List */}
-        <div className="bg-slate-900/50 border border-white/5 p-6 rounded-2xl shadow-xl flex flex-col justify-between">
+        <div className="bg-[#080D1D] border border-white/[0.07] p-8 rounded-2xl shadow-xl flex flex-col justify-between relative group hover:border-white/15 transition-all duration-300">
+          <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
+          
           <div>
-            <h2 className="text-xl font-bold mb-2">Configured Keys</h2>
-            <p className="text-slate-400 text-xs mb-6">List of credentials currently loaded inside your organization partition.</p>
+            <h2 className="text-xl font-bold text-white mb-1.5">Configured Keys</h2>
+            <p className="text-[#98A4C2] text-xs font-light mb-6">List of credentials currently loaded inside your organization partition.</p>
 
             {credentials.length === 0 ? (
-              <div className="text-slate-500 text-sm py-8 text-center italic">No keys set yet. Run executions will default to fallback mock mode.</div>
+              <div className="text-[#687493] text-xs font-light py-8 text-center italic">
+                No keys set yet. Run executions will default to fallback mock mode.
+              </div>
             ) : (
               <div className="space-y-3">
                 {credentials.map((cred) => (
-                  <div key={cred.id} className="flex justify-between items-center bg-slate-950 p-4 rounded-xl border border-white/5">
-                    <span className="text-sm font-semibold font-mono text-slate-300">{cred.name}</span>
-                    <span className="text-[10px] text-slate-500">Last updated: {new Date(cred.createdAt).toLocaleDateString()}</span>
+                  <div key={cred.id} className="flex justify-between items-center bg-black/35 p-4 rounded-xl border border-white/[0.04]">
+                    <span className="text-xs font-semibold font-mono text-slate-300">{cred.name}</span>
+                    <span className="text-[9px] text-[#687493] font-mono">Last updated: {new Date(cred.createdAt).toLocaleDateString()}</span>
                   </div>
                 ))}
               </div>
