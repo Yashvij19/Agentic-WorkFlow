@@ -3,12 +3,60 @@ import {prisma} from '../utils/db';
 import { validateDag } from '../utils/dag';
 
 import { enqueWorkflowJob } from '../queues/workflowQueue';
-import { exec } from 'node:child_process';
+
 
 export class workflowService{
 
-    static async createWorkflow(orgId:string , name:string , nodes:any[] , edges:any[]){
+    static async getUserAccess(userId: string) {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true, permissions: true }
+        });
+        if (!user) throw new Error("User not found.");
+        
+        const perms = typeof user.permissions === 'string'
+            ? JSON.parse(user.permissions)
+            : (user.permissions || {});
+        return { role: user.role, permissions: perms };
+    }
 
+        // Resolves Creator, Admin, Global team flag, or whitelisted allowedWorkflowIds
+    static hasWorkflowAccess(
+        workflow: any, 
+        userId: string, 
+        role: string, 
+        permissions: any, 
+        action: 'view' | 'execute' | 'delete'
+    ): boolean {
+        if (role === 'SINGLE') return true; 
+        if (role === 'ADMIN') return true;   
+        const isCreator = workflow.createdByUserId === userId;
+        if (isCreator) return true; // Creators always have full access to their own workflows
+        // Check specific workflow whitelists (Admin granted)
+        const allowedIds = permissions?.allowedWorkflowIds || [];
+        const isSpecificallyWhitelisted = allowedIds.includes(workflow.id);
+        if (isSpecificallyWhitelisted) return true;
+        // Check global permission flags
+        if (action === 'view') {
+            return permissions?.canViewTeamWorkflows === true;
+        }
+        if (action === 'execute') {
+            return permissions?.canExecuteTeamWorkflows === true;
+        }
+        if (action === 'delete') {
+            return permissions?.canDeleteTeamWorkflows === true;
+        }
+        return false;
+    }
+
+
+    static async createWorkflow(orgId:string, userId:string, name:string, nodes:any[], edges:any[]){
+
+          const { role, permissions } = await workflowService.getUserAccess(userId);
+
+        if (role === 'MEMBER' && permissions.canCreateWorkflow === false) {
+            throw new Error("Access Denied: You do not have permission to create workflows.");
+        }
 
         //validata the graph
 
@@ -17,39 +65,115 @@ export class workflowService{
             throw new Error (dagCheck.error||"Invalid workflow DAG structure.");
         }
 
+        const workflowName=name?.trim();
+        const existingWorkflow=await prisma.workflow.findFirst({
+            where:{
+                organizationId:orgId,
+                name:{
+                    equals:workflowName,
+                    mode:'insensitive'
+                }
+            }
+        })
+
+        if(existingWorkflow){
+            throw new Error(`A workflow named "${workflowName}" already exists in your organization.`);
+        }
+
         return await prisma.workflow.create({
             data:{
-                name:name||'Untitled Agentic Workflow',
+                name:workflowName,
                 nodesJson:nodes,
                 dagJson:edges,
                 organizationId:orgId,
+                createdByUserId:userId,
                 status:'ACTIVE',
             }
         });
 
     }
 
-    static async getWorkflows(orgId:string){
-        return await prisma.workflow.findMany({
-            where:{
-                organizationId:orgId
-            },
+    static async getWorkflows(
+       parms:{
+         orgId:string,
+        userId:string,
+       
+        scope?:'me'|'organization'
+       }
+    ){
+        const {orgId , userId , scope='organization'}=parms;
+        const { role, permissions } = await workflowService.getUserAccess(userId);
+        const whereClause:any={
+            organizationId:orgId
+        }
+
+        if(role==='SINGLE'){
+            return await prisma.workflow.findMany({
+                where:whereClause,
+                orderBy:{
+                    createdAt:'desc'
+                }
+            });
+        }
+         if (role === 'ADMIN') {
+            if (scope === 'me') {
+                whereClause.createdByUserId = userId;
+            }
+            return await prisma.workflow.findMany({
+                where: whereClause,
+                orderBy: { createdAt: 'desc' }
+            });
+        }
+
+        
+
+         // If user is a MEMBER, restrict by allowedWorkflowIds (if set)
+         if(role==='MEMBER'){
+             if (scope === 'me') {
+                whereClause.createdByUserId = userId;
+            } else{
+                 // By default, members only see their own workflows unless they have team view access
+            const canViewTeamWorkflows=permissions.canViewTeamWorkflows===true;
+            if(!canViewTeamWorkflows){
+                 const allowedIds = permissions?.allowedWorkflowIds || [];
+                    whereClause.OR = [
+                        { createdByUserId: userId },
+                        { id: { in: allowedIds } }
+                    ];
+            }
+        }
+         }
+         return await prisma.workflow.findMany({
+            where:whereClause,
             orderBy:{
                 createdAt:'desc'
             }
-        });
+         });
     }
 
-    static async getWorkflowById(orgId:string , id:string){
-        return await prisma.workflow.findFirst({
-            where:{
-                id:id,
-                organizationId:orgId
-            }
-        });
+
+
+    static async getWorkflowById( orgId: string, userId: string, id: string ){
+             const { role, permissions } = await workflowService.getUserAccess(userId);
+        
+                const workflow = await prisma.workflow.findFirst({
+                    where: {
+                        id: id,
+                        organizationId: orgId
+                    }
+                });
+                if (!workflow) {
+                    throw new Error("Workflow not found.");
+                }
+                if (!workflowService.hasWorkflowAccess(workflow, userId, role, permissions, 'view')) {
+                    throw new Error("Access Denied: You do not have permission to view this workflow.");
+                }
+                return workflow;
+        
     }
 
-    static async triggerExecution(orgId:string , workflowId:string){
+    static async triggerExecution(orgId:string , workflowId:string , userId:string){
+         const { role, permissions } = await workflowService.getUserAccess(userId);
         const workflow=await prisma.workflow.findFirst({
             where:{id:workflowId, organizationId:orgId},
         });
@@ -58,11 +182,16 @@ export class workflowService{
             throw new Error("Workflow not found.")
         }
 
+         if (!workflowService.hasWorkflowAccess(workflow, userId, role, permissions, 'execute')) {
+            throw new Error("Access Denied: You do not have permission to execute this workflow.");
+        }
+
         // 2. Create the PENDING run record in DB
         const execution=await prisma.workflowExecution.create({
             data:{
                 workflowId , 
                 organizationId:orgId ,
+                triggeredByUserId: userId,
                 status:'PENDING',
             },
         });
@@ -74,22 +203,47 @@ export class workflowService{
             return execution;
     }
 
-    static async getExecutionHistory(workflowId:string , orgId:string){
-       return await prisma.workflowExecution.findMany({
-            where:{
-                workflowId:workflowId,
-                organizationId:orgId
+    static async getExecutionHistory(workflowId:string , orgId:string , userId:string ){
+        const { role, permissions } = await workflowService.getUserAccess(userId);
+        
+        const workflow = await prisma.workflow.findFirst({
+            where: { id: workflowId, organizationId: orgId }
+        });
+        if (!workflow) {
+            throw new Error("Workflow not found.");
+        }
+        if (!workflowService.hasWorkflowAccess(workflow, userId, role, permissions, 'view')) {
+            throw new Error("Access Denied: You do not have permission to view execution history.");
+        }
+
+
+      const whereClause:any={
+        workflowId,
+        organizationId:orgId
+      };
+
+      if(role==='MEMBER'){
+        const canViewTeam = permissions?.canViewTeamExecutions === true;
+        if (!canViewTeam) {
+                whereClause.triggeredByUserId = userId; // Can only view own executions
+            }
+      }
+
+      return await prisma.workflowExecution.findMany({
+            where: whereClause,
+            include: {
+                logs: true
             },
-            include:{
-                logs:true
-            },
-            orderBy:{
-                startedAt:'desc'
+            orderBy: {
+                startedAt: 'desc'
             }
         });
+
     }
 
-    static async triggerPartialExecution(orgId:string , workflowId:string , targetNodeId:string){
+    static async triggerPartialExecution(orgId:string , workflowId:string , targetNodeId:string , userId: string){
+        
+          const { role, permissions } = await workflowService.getUserAccess(userId);
         const workflow = await prisma.workflow.findFirst({
             where:{
                 id:workflowId, 
@@ -101,12 +255,17 @@ export class workflowService{
             throw new Error("Workflow not found.");
         }
 
+        if (!workflowService.hasWorkflowAccess(workflow, userId, role, permissions, 'execute')) {
+            throw new Error("Access Denied: You do not have permission to execute this workflow.");
+        }
+
         // 1. Create a PENDING run in DB
 
         const execution=await prisma.workflowExecution.create({
             data:{
                 workflowId,
                 organizationId:orgId,
+                 triggeredByUserId: userId,
                 status:'PENDING'
             }
         });
@@ -115,4 +274,23 @@ export class workflowService{
         await enqueWorkflowJob(execution.id, workflowId, orgId, targetNodeId);
         return execution;
     }
+
+    static async deleteWorkflow(orgId:string,userId: string,id:string ){
+        const { role, permissions } = await workflowService.getUserAccess(userId);
+
+          const workflow = await prisma.workflow.findFirst({
+            where: { id, organizationId: orgId }
+        });
+        if (!workflow) {
+            throw new Error("Workflow not found.");
+        }
+        if (!workflowService.hasWorkflowAccess(workflow, userId, role, permissions, 'delete')) {
+            throw new Error("Access Denied: You do not have permission to delete this workflow.");
+        }
+         return await prisma.workflow.delete({
+            where: { id }
+        });
+    }
+
+
 }

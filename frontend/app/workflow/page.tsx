@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { API_URL } from '../../utils/config';
 
 export default function WorkflowsDashboard() {
   const [workflows, setWorkflows] = useState<any[]>([]);
@@ -40,7 +41,7 @@ export default function WorkflowsDashboard() {
       return;
     }
 
-    fetch('http://localhost:4000/api/workflows', {
+    fetch(`${API_URL}/api/workflows`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => {
@@ -83,7 +84,7 @@ export default function WorkflowsDashboard() {
     ];
 
     try {
-      const res = await fetch('http://localhost:4000/api/workflow', {
+      const res = await fetch(`${API_URL}/api/workflow`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -110,13 +111,25 @@ export default function WorkflowsDashboard() {
     router.push('/');
   };
 
-  // Simulated Client Delete (until backend delete route is added)
-  const handleDeleteConfirm = () => {
+  // Backend integrated Delete
+  const handleDeleteConfirm = async () => {
     if (!deletingId) return;
-    setWorkflows((prev) => prev.filter((wf) => wf.id !== deletingId));
-    setDeletingId(null);
-    setDeletingName('');
-    setShowDeleteModal(false);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/workflow/${deletingId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete workflow.');
+
+      setWorkflows((prev) => prev.filter((wf) => wf.id !== deletingId));
+      setDeletingId(null);
+      setDeletingName('');
+      setShowDeleteModal(false);
+    } catch (err: any) {
+      alert(`Delete error: ${err.message}`);
+    }
   };
 
   const handleDuplicate = (wf: any, e: React.MouseEvent) => {

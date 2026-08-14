@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AutoCanvasVisual from '@/components/AutoCanvasVisual';
+import { API_URL } from '../../utils/config';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -19,7 +20,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch('http://localhost:4000/api/auth/login', {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

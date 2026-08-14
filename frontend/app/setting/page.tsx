@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { API_URL } from '../../utils/config';
 
 export default function SettingsPage() {
   const [credentials, setCredentials] = useState<any[]>([]);
@@ -17,7 +18,7 @@ export default function SettingsPage() {
   const loadCredentials = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch('http://localhost:4000/api/credentials', {
+      const res = await fetch(`${API_URL}/api/credentials`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -45,7 +46,7 @@ export default function SettingsPage() {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('http://localhost:4000/api/credentials', {
+      const res = await fetch(`${API_URL}/api/credentials`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
