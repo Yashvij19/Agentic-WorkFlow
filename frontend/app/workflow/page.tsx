@@ -9,6 +9,7 @@ import { API_URL } from '../../utils/config';
 export default function WorkflowsDashboard() {
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string | null>(null);
   
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -36,9 +37,20 @@ export default function WorkflowsDashboard() {
 
   useEffect(() => {
     const token = localStorage.getItem('token');
+    const userStr = localStorage.getItem('user');
+
     if (!token) {
       router.push('/login');
       return;
+    }
+
+    if (userStr) {
+      try {
+        const parsed = JSON.parse(userStr);
+        setUserRole(parsed.role);
+      } catch (err) {
+        console.error(err);
+      }
     }
 
     fetch(`${API_URL}/api/workflows`, {
@@ -262,12 +274,14 @@ export default function WorkflowsDashboard() {
           </div>
 
           <div className="flex items-center gap-6">
-            <Link 
-              href="/setting" 
-              className="text-xs font-semibold text-[#98A4C2] hover:text-white transition duration-200 flex items-center gap-1.5"
-            >
-               Organization Settings
-            </Link>
+            {userRole && userRole !== 'MEMBER' && (
+              <Link 
+                href="/setting" 
+                className="text-xs font-semibold text-[#98A4C2] hover:text-white transition duration-200 flex items-center gap-1.5"
+              >
+                {userRole === 'ADMIN' ? 'Organization Settings' : 'Credentials Setup'}
+              </Link>
+            )}
             <button 
               onClick={handleLogout} 
               className="text-xs font-bold tracking-wider uppercase text-[#EF4444] hover:text-red-300 transition duration-200 cursor-pointer"
