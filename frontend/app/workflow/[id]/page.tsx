@@ -21,6 +21,7 @@ import 'reactflow/dist/style.css';
 import TriggerNode from '../../../components/nodes/TriggerNode';
 import AgentNode from '../../../components/nodes/AgentNode';
 import ApiNode from '../../../components/nodes/ApiNode';
+import RagNode from '../../../components/nodes/RagNode';
 
 // Modular Canvas UI Components
 import CanvasHeader from '../../../components/canvas/CanvasHeader';
@@ -53,7 +54,8 @@ export default function WorkflowWorkspace() {
   const nodeTypes = useMemo(() => ({
     input: TriggerNode,
     agent: AgentNode,
-    api: ApiNode
+    api: ApiNode,
+    rag_query: RagNode
   }), []);
 
   // Compute selectedNode object helper

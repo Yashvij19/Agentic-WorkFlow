@@ -6,6 +6,8 @@ import { injectVariables } from "../utils/interpolation";
 import { executeAiAgent } from "../utils/aiAgent";
 import { error, timeStamp } from "node:console";
 import 'dotenv/config';
+import { RAGEngine } from '../services/rag/RAGEngine';
+import { RAGConfiguration } from '../services/rag/types';
 // A mock array of steps for our workflow
 function topologicalSort(nodes:any[] , edges:any[]):any[]{
   const inDegree=new Map<string , number>();
@@ -84,6 +86,10 @@ function resolveAncestors(targetId:string , edges:any[]):Set<string>{
   dfs(targetId);
   return ancestors;
 }
+const ragEngine = new RAGEngine();
+
+
+
 const processWorkflow = async (job: Job) => {
 
   const { executionId, workflowId, organizationId  , targetNodeId} = job.data;
@@ -226,6 +232,68 @@ try{
       }
         console.log(`✅ [API Node] Response Status: ${response.status}`);
         stepResult = responseData;
+    } else if (node.type === 'rag_query') {
+       const rawQuery = node.data?.query || '';
+      // 1. Inject variables from previous steps (e.g. {{trigger.output}})
+       const hydratedQuery = injectVariables(rawQuery, workflowContext);
+         console.log(`🔍 [RAG Node] Hydrated Query: "${hydratedQuery}"`);
+         // 2. Resolve RAG Configuration (defaults + node.data overrides)
+         const ragConfig: RAGConfiguration = {
+        mode: node.data?.mode || 'simple',
+        useCaseProfile: node.data?.useCaseProfile || 'GENERAL_QA',
+        ingestion: node.data?.ingestion || {
+          parser: 'auto',
+          chunkSize: 800,
+          chunkOverlap: 100,
+          chunkStrategy: 'recursive',
+        },
+        retrieval: node.data?.retrieval || {
+          mode: 'hybrid',
+          topK: 10,
+          vectorWeight: 0.7,
+          keywordWeight: 0.3,
+          minScore: 0.3,
+        },
+        reranker: node.data?.reranker || {
+          provider: 'none',
+          topN: 5,
+        },
+        context: node.data?.context || {
+          strategy: 'top_chunks',
+          maxTokens: 4000,
+          citationMode: 'inline',
+        },
+        generation: node.data?.generation || {
+          enabled: true,
+          provider: 'gemini',
+          model: 'gemini-2.5-flash',
+          temperature: 0.2,
+          systemPrompt: '',
+        },
+      };
+       // 3. Execute the RAG Pipeline
+      const ragResult = await ragEngine.execute({
+        orgId,
+        query: hydratedQuery,
+        config: ragConfig,
+        executionId,
+        nodeId: node.id,
+        metadataFilters: node.data?.metadataFilters,
+      });
+
+       console.log(`📚 [RAG Node] Retrieved ${ragResult.retrievedCount} chunks in ${ragResult.latencyMs}ms`);
+      console.log(`🤖 [RAG Output]: "${ragResult.answer.slice(0, 100)}..."`);
+
+      // 4. Return structured outcome so downstream nodes can use {{rag_1.answer}} or {{rag_1.context}}
+      stepResult = {
+        output: ragResult.answer,
+        answer: ragResult.answer,
+        context: ragResult.context.contextText,
+        citations: ragResult.context.citations,
+        retrievedCount: ragResult.retrievedCount,
+        latencyMs: ragResult.latencyMs,
+        traceId: ragResult.traceId,
+      };
     }else{
       stepResult=node.data?.output ;
     }

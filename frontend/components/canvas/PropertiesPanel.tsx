@@ -122,6 +122,127 @@ export default function PropertiesPanel({
             </div>
           </div>
         )}
+
+        {/* RAG Knowledge Node Editor */}
+        {type === 'rag_query' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">Search Query / Prompt</label>
+              <textarea
+                rows={3}
+                value={data.query || ''}
+                onChange={(e) => onUpdateNodeData(id, { ...data, query: e.target.value })}
+                className="w-full px-3.5 py-2.5 glass-input rounded-xl text-xs font-sans"
+                placeholder="Find error code: {{trigger.output}}"
+              />
+              <p className="text-[9px] text-[#687493] mt-1.5 leading-relaxed">
+                * Reference variables using <code className="bg-black/30 px-1 py-0.5 rounded text-purple-400 font-mono">{"{{node_id.output}}"}</code>.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">Use Case Profile</label>
+              <select
+                value={data.useCaseProfile || 'GENERAL_QA'}
+                onChange={(e) => onUpdateNodeData(id, { ...data, useCaseProfile: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-black/45 border border-white/10 rounded-xl text-xs text-white focus:border-[#8B5CF6]/50 focus:outline-none transition cursor-pointer"
+              >
+                <option value="GENERAL_QA">General Q&A (Dense Vector)</option>
+                <option value="TECHNICAL_DOCUMENTATION">Technical Docs (Hybrid + RRF)</option>
+                <option value="COMPANY_POLICY">Company Policy (Keyword + Vector)</option>
+                <option value="DATABASE_KNOWLEDGE">Database Knowledge (Exact Keyword)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">Configuration Mode</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => onUpdateNodeData(id, { ...data, mode: 'simple' })}
+                  className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer ${
+                    (data.mode || 'simple') === 'simple'
+                      ? 'bg-purple-950/40 border-purple-500/50 text-purple-200'
+                      : 'bg-black/20 border-white/5 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Simple Preset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdateNodeData(id, { ...data, mode: 'advanced' })}
+                  className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer ${
+                    data.mode === 'advanced'
+                      ? 'bg-purple-950/40 border-purple-500/50 text-purple-200'
+                      : 'bg-black/20 border-white/5 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Advanced
+                </button>
+              </div>
+            </div>
+
+            {/* Advanced Settings Drawer */}
+            {data.mode === 'advanced' && (
+              <div className="space-y-3.5 p-3 bg-black/30 rounded-xl border border-white/5">
+                <div>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">Retrieval Mode</label>
+                  <select
+                    value={data.retrieval?.mode || 'hybrid'}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        retrieval: { ...(data.retrieval || {}), mode: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white"
+                  >
+                    <option value="hybrid">Hybrid (Vector + Keyword RRF)</option>
+                    <option value="vector">Vector Only</option>
+                    <option value="keyword">Keyword Only</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                    Top Chunks (Top K: {data.retrieval?.topK || 10})
+                  </label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="20"
+                    value={data.retrieval?.topK || 10}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        retrieval: { ...(data.retrieval || {}), topK: parseInt(e.target.value) },
+                      })
+                    }
+                    className="w-full accent-purple-500 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">Citation Format</label>
+                  <select
+                    value={data.context?.citationMode || 'inline'}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        context: { ...(data.context || {}), citationMode: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white"
+                  >
+                    <option value="inline">Inline Citations [Source 1]</option>
+                    <option value="source_list">Source Bibliography at Bottom</option>
+                    <option value="none">No Citations</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3.5 border-t border-white/[0.05] pt-4">
