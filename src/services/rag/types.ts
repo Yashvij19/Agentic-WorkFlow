@@ -1,11 +1,14 @@
 // src/services/rag/types.ts
 
+
+
 export type RAGMode = 'simple' | 'advanced';
 export type UseCaseProfile = 'GENERAL_QA' | 'TECHNICAL_DOCUMENTATION' | 'COMPANY_POLICY' | 'DATABASE_KNOWLEDGE' | 'CUSTOM';
 export type ParserType = 'auto' | 'native' | 'markitdown';
 export type ChunkStrategy = 'recursive' | 'section' | 'fixed';
 export type RetrievalMode = 'vector' | 'keyword' | 'hybrid' | 'adaptive';
 export type CitationMode = 'none' | 'inline' | 'source_list';
+export type RerankerProvider = 'none' | 'local_cross_encoder' | 'simple_lexical' | 'cohere';
 
 export interface RAGConfiguration {
   mode: RAGMode;
@@ -24,8 +27,9 @@ export interface RAGConfiguration {
     minScore: number;
   };
   reranker: {
-    provider: 'none' | 'simple' | 'llm';
+    provider: RerankerProvider;
     topN: number;
+    minScore?:number;
   };
   context: {
     strategy: 'top_chunks' | 'parent_child' | 'neighbors';
@@ -75,6 +79,7 @@ export interface RetrievalResult {
   metadata: Record<string, any>;
   source: string;
   title: string;
+  initialRank?:number // Pre-rerank position in the candidate list
 }
 
 export interface QueryAnalysis {
@@ -92,4 +97,14 @@ export interface RetrievalPlan {
   vectorWeight: number;
   keywordWeight: number;
   minScore: number;
+}
+
+
+export interface RerankOptions {
+  topN: number;
+  minScore?: number;
+}
+
+export interface IReranker{
+  rerank(query:string , candidates:RetrievalResult[] , options:RerankOptions):Promise<RetrievalResult[]>;
 }

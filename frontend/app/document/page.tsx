@@ -21,6 +21,8 @@ interface DocumentItem {
 interface TestQueryResult {
   answer: string;
   retrievedCount: number;
+  fusedCount?: number;
+  rerankedCount?: number;
   latencyMs: number;
   context: {
     contextText: string;
@@ -29,6 +31,7 @@ interface TestQueryResult {
       documentTitle: string;
       score: number;
       snippet: string;
+      initialRank?: number;
     }>;
   };
 }
@@ -43,6 +46,7 @@ export default function DocumentKnowledgePage() {
 
   // Playground test state
   const [testQuery, setTestQuery] = useState('');
+  const [rerankerChoice, setRerankerChoice] = useState<'none' | 'local_cross_encoder' | 'simple_lexical'>('local_cross_encoder');
   const [isTesting, setIsTesting] = useState(false);
   const [queryResult, setQueryResult] = useState<TestQueryResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
@@ -209,7 +213,7 @@ export default function DocumentKnowledgePage() {
     }
   };
 
-  // 4. Test Search Playground
+  // 4. Test Search Playground with Phase 2 Reranker Config
   const handleTestSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testQuery.trim()) return;
@@ -228,6 +232,19 @@ export default function DocumentKnowledgePage() {
         },
         body: JSON.stringify({
           query: testQuery,
+          config: {
+            retrieval: {
+              mode: 'hybrid',
+              topK: 10,
+              vectorWeight: 0.7,
+              keywordWeight: 0.3,
+              minScore: 0.2,
+            },
+            reranker: {
+              provider: rerankerChoice,
+              topN: 5,
+            },
+          },
         }),
       });
 
@@ -267,7 +284,7 @@ export default function DocumentKnowledgePage() {
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-tight text-white">Knowledge Base & RAG Index</h1>
-              <p className="text-[10px] text-[#687493]">Upload documents and test semantic retrieval</p>
+              <p className="text-[10px] text-[#687493]">Upload documents and test cross-encoder semantic retrieval</p>
             </div>
           </div>
         </div>
@@ -286,7 +303,6 @@ export default function DocumentKnowledgePage() {
         <section className="lg:col-span-7 space-y-6">
           {/* Ingest Knowledge Sources Card */}
           <div className="bg-[#080D1D]/90 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl relative overflow-hidden">
-            {/* Header section with icon and title */}
             <div className="mb-5 flex items-center justify-between border-b border-white/[0.04] pb-4">
               <div className="flex items-center gap-3">
                 <div className="rounded-xl bg-purple-500/10 border border-purple-500/20 p-2.5 text-purple-400">
@@ -300,13 +316,12 @@ export default function DocumentKnowledgePage() {
                 </div>
               </div>
               <span className="text-[9px] font-mono text-purple-400 bg-purple-950/40 border border-purple-800/30 px-2 py-0.5 rounded">
-                bge-m3 1024d
+                bge-m3 1024d + Cross-Encoder
               </span>
             </div>
 
-            {/* Grid: Left side for upload inputs, Right side for Live Status / Book Loader */}
+            {/* Grid: Upload & Status */}
             <div className="grid gap-5 md:grid-cols-[1.3fr_1fr] items-stretch">
-              {/* Left Side: File Selection & Upload Button */}
               <div className="flex flex-col justify-between rounded-xl border border-dashed border-purple-500/20 hover:border-purple-500/40 bg-black/30 p-5 min-h-[190px] transition">
                 <div>
                   <input
@@ -336,7 +351,6 @@ export default function DocumentKnowledgePage() {
                 </button>
               </div>
 
-              {/* Right Side: Status / Book Loader Panel */}
               <div className="flex flex-col items-center justify-center p-5 border border-white/[0.06] rounded-xl bg-black/40 min-h-[190px] text-center">
                 {isUploading ? (
                   <div className="scale-90 transition-all duration-300">
@@ -429,7 +443,7 @@ export default function DocumentKnowledgePage() {
               </span>
             </div>
 
-            <form onSubmit={handleTestSearch} className="space-y-3">
+            <form onSubmit={handleTestSearch} className="space-y-3.5">
               <div>
                 <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1.5">
                   Ask a Question
@@ -443,12 +457,28 @@ export default function DocumentKnowledgePage() {
                 />
               </div>
 
+              {/* Reranker Strategy Selector */}
+              <div>
+                <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1.5">
+                  Reranker Strategy
+                </label>
+                <select
+                  value={rerankerChoice}
+                  onChange={(e) => setRerankerChoice(e.target.value as any)}
+                  className="w-full px-3.5 py-2 bg-black/45 border border-white/10 rounded-xl text-xs text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
+                >
+                  <option value="local_cross_encoder">Local Cross-Encoder (Neural Attention)</option>
+                  <option value="simple_lexical">Simple Lexical (Exact Phrase Density)</option>
+                  <option value="none">None (Standard RRF)</option>
+                </select>
+              </div>
+
               <button
                 type="submit"
                 disabled={isTesting}
                 className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/20 transition cursor-pointer disabled:opacity-50"
               >
-                {isTesting ? 'Searching & Synthesizing...' : 'Test Retrieval & Answer'}
+                {isTesting ? 'Searching & Reranking...' : 'Test Retrieval & Answer ⚡'}
               </button>
             </form>
 
@@ -474,12 +504,20 @@ export default function DocumentKnowledgePage() {
                   </p>
                 </div>
 
-                {/* Citations & Chunks */}
+                {/* Citations & Chunks with Initial vs Reranked Rank */}
                 {queryResult.context.citations.length > 0 && (
                   <div className="space-y-2">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">
-                      Retrieved Chunks ({queryResult.context.citations.length})
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">
+                        Top Reranked Chunks ({queryResult.context.citations.length})
+                      </span>
+                      {queryResult.fusedCount && (
+                        <span className="text-[9px] text-slate-500 font-mono">
+                          Filtered from {queryResult.fusedCount} fused hits
+                        </span>
+                      )}
+                    </div>
+
                     <div className="space-y-2">
                       {queryResult.context.citations.map((cit) => (
                         <div
@@ -487,9 +525,16 @@ export default function DocumentKnowledgePage() {
                           className="bg-black/30 border border-white/[0.04] p-3 rounded-xl space-y-1 text-left"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-slate-200">
-                              [{cit.index}] {cit.documentTitle}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-slate-200">
+                                [{cit.index}] {cit.documentTitle}
+                              </span>
+                              {cit.initialRank && cit.initialRank !== cit.index && (
+                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40">
+                                  Pre-rank #{cit.initialRank} ➔ #{cit.index}
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[9px] font-mono text-purple-400">
                               Score: {cit.score}
                             </span>

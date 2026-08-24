@@ -185,6 +185,7 @@ export default function PropertiesPanel({
             {/* Advanced Settings Drawer */}
             {data.mode === 'advanced' && (
               <div className="space-y-3.5 p-3 bg-black/30 rounded-xl border border-white/5">
+                {/* 1. Retrieval Mode */}
                 <div>
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">Retrieval Mode</label>
                   <select
@@ -203,14 +204,15 @@ export default function PropertiesPanel({
                   </select>
                 </div>
 
+                {/* 2. Top K Candidates */}
                 <div>
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
-                    Top Chunks (Top K: {data.retrieval?.topK || 10})
+                    Initial Search Pool (Top K: {data.retrieval?.topK || 10})
                   </label>
                   <input
                     type="range"
                     min="1"
-                    max="20"
+                    max="25"
                     value={data.retrieval?.topK || 10}
                     onChange={(e) =>
                       onUpdateNodeData(id, {
@@ -222,7 +224,57 @@ export default function PropertiesPanel({
                   />
                 </div>
 
-                <div>
+                {/* 3. Phase 2: Reranker Strategy Selector */}
+                <div className="pt-2 border-t border-white/[0.05]">
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                    Cross-Encoder Reranker
+                  </label>
+                  <select
+                    value={data.reranker?.provider || 'none'}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        reranker: {
+                          ...(data.reranker || {}),
+                          provider: e.target.value,
+                        },
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white"
+                  >
+                    <option value="none">Disabled (Use RRF Scores)</option>
+                    <option value="local_cross_encoder">Local Cross-Encoder (Neural Attention)</option>
+                    <option value="simple_lexical">Simple Lexical (Fast Exact Match)</option>
+                  </select>
+                </div>
+
+                {/* 4. Phase 2: Reranker Top-N Final Chunks */}
+                {data.reranker?.provider && data.reranker.provider !== 'none' && (
+                  <div>
+                    <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                      Final Reranked Chunks (Top N: {data.reranker?.topN || 5})
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      value={data.reranker?.topN || 5}
+                      onChange={(e) =>
+                        onUpdateNodeData(id, {
+                          ...data,
+                          reranker: {
+                            ...(data.reranker || {}),
+                            topN: parseInt(e.target.value),
+                          },
+                        })
+                      }
+                      className="w-full accent-purple-500 cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {/* 5. Citation Format */}
+                <div className="pt-2 border-t border-white/[0.05]">
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">Citation Format</label>
                   <select
                     value={data.context?.citationMode || 'inline'}
@@ -262,7 +314,6 @@ export default function PropertiesPanel({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 7.5V6.108c0-1.135.845-2.098 1.976-2.192.373-.03.748-.057 1.123-.08M15.75 18H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08M15.75 18.75v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5A3.375 3.375 0 006.375 7.5H5.25m11.9-3.664A2.251 2.251 0 0015 2.25h-1.5a2.251 2.251 0 00-2.15 1.586m5.8 0c.065.21.1.433.1.664v.75h-6V4.5c0-.231.035-.454.1-.664M6.75 7.5H4.875c-.621 0-1.125.504-1.125 1.125v12c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V16.5a9 9 0 00-9-9z" />
               </svg>
             </button>
-            {/* Tooltip */}
             <div className="absolute top-[-26px] right-0 bg-slate-950 text-white text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded border border-white/10 opacity-0 group-hover/copy:opacity-100 transition duration-200 pointer-events-none whitespace-nowrap shadow-lg">
               Copy Response
             </div>
