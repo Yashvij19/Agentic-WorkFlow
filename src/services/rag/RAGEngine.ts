@@ -4,7 +4,7 @@ import { QueryAnalyzer } from './retrieval/QueryAnalyzer';
 import { RetrievalPlanner } from './retrieval/RetrievalPlanner';
 import { VectorStore } from './storage/VectorStore';
 import { ContextBuilder , BuiltContext } from './retrieval/ContextBuilder';
-
+import { RerankerFactory } from './reranker/Reranker';
 import {
   RAGConfiguration,
   RetrievalResult,
@@ -18,6 +18,8 @@ export interface RAGQueryResult{
   analysis: QueryAnalysis;
   plan: RetrievalPlan;
   retrievedCount: number;
+   fusedCount: number;
+    rerankedCount: number;
   latencyMs: number;
   traceId?: string;
 }
@@ -29,8 +31,10 @@ export class RAGEngine{
   private contextBuilder = new ContextBuilder();
   private vectorStore = new VectorStore();
 
-/**
-   * Main RAG execution flow: Analyze -> Plan -> Retrieve (Vector + Keyword) -> RRF Fusion -> Context -> Generate -> Trace
+  /**
+   * Main RAG execution flow:
+   * 1. Analyze -> 2. Plan -> 3. Retrieve (Vector + Keyword) -> 4. RRF Fusion ->
+   * 5. Cross-Encoder Reranker -> 6. Context Builder -> 7. LLM Generate -> 8. Trace
    */
   async execute(params:{
     orgId:string ;
@@ -70,12 +74,31 @@ export class RAGEngine{
             plan.keywordWeight
          );
 
-           // 5. Context Building & Deduplication & Token Budgeting
-           const builtContext = this.contextBuilder.buildContext(fusedCandidates, config);
+          // 5. Phase 2: Reranking Strategy Execution
+           const rerankerProvider = config.reranker?.provider || 'none';
+          const rerankerTopN = config.reranker?.topN || 5;
+          const reranker = RerankerFactory.get(rerankerProvider);
+          let rerankedCandidates: RetrievalResult[] = [];
+
+          try{
+            rerankedCandidates=await reranker.rerank(query , fusedCandidates ,{
+              topN:rerankerTopN,
+              minScore:config.reranker?.minScore,
+            } );
+
+          }catch(err:any){
+            console.warn('Reranker execution failed, falling back to fused results:', err);
+            rerankedCandidates = fusedCandidates.slice(0, rerankerTopN);
+          }
+
+          // 6. Context Building & Deduplication & Token Budgeting
+          // We pass the high-precision reranked candidates to the context builder
+
+           const builtContext = this.contextBuilder.buildContext(rerankedCandidates, config);
 
 
  
-    // 5. LLM Answer Generation (if enabled)
+    // 7. LLM Answer Generation (if enabled)
 
      let answer = '';
     if (config.generation.enabled) {
@@ -99,13 +122,14 @@ export class RAGEngine{
                     planJson:plan as any,
                     retrievedJson:allRetrieved as any,
                     fusedJson:fusedCandidates as any,
-                    rerankedJson: fusedCandidates as any,
+                    rerankedJson: rerankedCandidates as any,
                     contextString: builtContext.contextText,
                     answerString: answer,
                     metricsJson: {
                     latencyMs,
                     chunksRetrieved: allRetrieved.length,
                     chunksFused: fusedCandidates.length,
+                    chunksReranked: rerankedCandidates.length,
                     chunksUsed: builtContext.totalChunksUsed,
                     tokensUsedEstimate: builtContext.tokensUsedEstimate,
                     },
@@ -117,11 +141,13 @@ export class RAGEngine{
         }
     }
     return{
-          answer,
+      answer,
       context: builtContext,
       analysis,
       plan,
       retrievedCount: allRetrieved.length,
+      fusedCount: fusedCandidates.length,
+      rerankedCount: rerankedCandidates.length,
       latencyMs,
       traceId,
     };
