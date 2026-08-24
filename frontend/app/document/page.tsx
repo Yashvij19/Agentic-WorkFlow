@@ -4,6 +4,8 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { API_URL } from '../../utils/config';
+import { Loader } from '../../components/Loader';
+import Swal from 'sweetalert2';
 
 interface DocumentItem {
   id: string;
@@ -34,9 +36,10 @@ interface TestQueryResult {
 export default function DocumentKnowledgePage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Upload State
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
   // Playground test state
   const [testQuery, setTestQuery] = useState('');
@@ -81,55 +84,94 @@ export default function DocumentKnowledgePage() {
   }, []);
 
   // 2. Handle File Upload (converts file to Base64 and POSTs to /api/rag/ingest)
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleUpload = async () => {
+    if (!selectedFile) return;
 
     setIsUploading(true);
-    setUploadError(null);
-    setUploadSuccess(null);
 
     try {
       const reader = new FileReader();
       reader.onload = async () => {
-        const base64Buffer = (reader.result as string).split(',')[1];
-        const token = getAuthToken();
+        try {
+          const base64Buffer = (reader.result as string).split(',')[1];
+          const token = getAuthToken();
 
-        const res = await fetch(`${API_URL}/api/rag/ingest`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: file.name,
-            mimeType: file.type || 'text/plain',
-            source: file.name,
-            base64Buffer,
-          }),
-        });
+          const res = await fetch(`${API_URL}/api/rag/ingest`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              name: selectedFile.name,
+              mimeType: selectedFile.type || 'text/plain',
+              source: selectedFile.name,
+              base64Buffer,
+            }),
+          });
 
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Upload failed');
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Upload failed');
+          }
+
+          Swal.fire({
+            title: 'Indexed Successfully!',
+            text: `"${selectedFile.name}" has been parsed and added to your knowledge base.`,
+            icon: 'success',
+            timer: 2500,
+            showConfirmButton: false,
+            background: '#080D1D',
+            color: '#F5F7FF',
+            iconColor: '#8B5CF6',
+          });
+
+          setSelectedFile(null);
+          fetchDocuments();
+        } catch (postErr: any) {
+          Swal.fire({
+            title: 'Ingestion Failed',
+            text: postErr.message,
+            icon: 'error',
+            background: '#080D1D',
+            color: '#F5F7FF',
+            confirmButtonColor: '#8B5CF6',
+          });
+        } finally {
+          setIsUploading(false);
         }
-
-        setUploadSuccess(`Successfully indexed "${file.name}"!`);
-        fetchDocuments();
       };
 
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(selectedFile);
     } catch (err: any) {
-      setUploadError(err.message);
-    } finally {
+      Swal.fire({
+        title: 'Error',
+        text: err.message,
+        icon: 'error',
+        background: '#080D1D',
+        color: '#F5F7FF',
+        confirmButtonColor: '#8B5CF6',
+      });
       setIsUploading(false);
-      e.target.value = ''; // Reset file input
     }
   };
 
   // 3. Delete Document
-  const handleDeleteDocument = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this document and all its chunks?')) return;
+  const handleDeleteDocument = async (id: string, name: string) => {
+    const result = await Swal.fire({
+      title: 'Delete Document?',
+      text: `Are you sure you want to delete "${name}"? All vector chunks and embeddings will be permanently removed.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Delete',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#EF4444',
+      cancelButtonColor: '#1E293B',
+      background: '#080D1D',
+      color: '#F5F7FF',
+    });
+
+    if (!result.isConfirmed) return;
 
     try {
       const token = getAuthToken();
@@ -145,8 +187,25 @@ export default function DocumentKnowledgePage() {
       }
 
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+
+      Swal.fire({
+        title: 'Deleted!',
+        text: 'Document removed from knowledge base.',
+        icon: 'success',
+        timer: 1800,
+        showConfirmButton: false,
+        background: '#080D1D',
+        color: '#F5F7FF',
+        iconColor: '#8B5CF6',
+      });
     } catch (err: any) {
-      alert(err.message);
+      Swal.fire({
+        title: 'Delete Failed',
+        text: err.message,
+        icon: 'error',
+        background: '#080D1D',
+        color: '#F5F7FF',
+      });
     }
   };
 
@@ -186,7 +245,7 @@ export default function DocumentKnowledgePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#030617] text-white flex flex-col">
+    <div className="min-h-screen bg-[#030617] text-white flex flex-col font-sans">
       {/* Top Header */}
       <header className="border-b border-white/[0.06] bg-black/40 backdrop-blur-md px-8 py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-4">
@@ -207,7 +266,7 @@ export default function DocumentKnowledgePage() {
               </svg>
             </div>
             <div>
-              <h1 className="text-sm font-bold tracking-tight">Knowledge Base & RAG Index</h1>
+              <h1 className="text-sm font-bold tracking-tight text-white">Knowledge Base & RAG Index</h1>
               <p className="text-[10px] text-[#687493]">Upload documents and test semantic retrieval</p>
             </div>
           </div>
@@ -223,51 +282,79 @@ export default function DocumentKnowledgePage() {
 
       {/* Main Content Area */}
       <main className="flex-1 p-8 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Left Column: Upload & Documents List (7 cols) */}
+        {/* Left Column: Upload Card & Documents Table (7 cols) */}
         <section className="lg:col-span-7 space-y-6">
-          
-          {/* Upload Card */}
+          {/* Ingest Knowledge Sources Card */}
           <div className="bg-[#080D1D]/90 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl relative overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xs font-bold text-slate-100 uppercase tracking-widest">Ingest Knowledge</h2>
-              <span className="text-[10px] text-purple-400 font-mono">bge-m3 1024d</span>
+            {/* Header section with icon and title */}
+            <div className="mb-5 flex items-center justify-between border-b border-white/[0.04] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-purple-500/10 border border-purple-500/20 p-2.5 text-purple-400">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="font-semibold text-sm text-white">Upload Knowledge Sources</h2>
+                  <p className="text-[11px] text-[#98A4C2]">Supported: PDF, DOCX, XLSX, TXT, Markdown, PPTX</p>
+                </div>
+              </div>
+              <span className="text-[9px] font-mono text-purple-400 bg-purple-950/40 border border-purple-800/30 px-2 py-0.5 rounded">
+                bge-m3 1024d
+              </span>
             </div>
 
-            <label className="border-2 border-dashed border-purple-500/20 hover:border-purple-500/50 rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer bg-black/30 hover:bg-purple-950/10 transition group">
-              <div className="w-12 h-12 rounded-full bg-purple-500/10 group-hover:bg-purple-500/20 flex items-center justify-center text-purple-400 transition">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-              </div>
-              <div className="text-center">
-                <span className="text-xs font-bold text-slate-200 block">
-                  {isUploading ? 'Ingesting and Generating Embeddings...' : 'Click to Upload Document'}
-                </span>
-                <span className="text-[10px] text-[#687493] mt-1 block">
-                  Supports PDF, DOCX, Markdown, Text, PPTX, XLSX
-                </span>
-              </div>
-              <input
-                type="file"
-                disabled={isUploading}
-                onChange={handleFileUpload}
-                className="hidden"
-                accept=".pdf,.docx,.doc,.txt,.md,.xlsx,.pptx"
-              />
-            </label>
+            {/* Grid: Left side for upload inputs, Right side for Live Status / Book Loader */}
+            <div className="grid gap-5 md:grid-cols-[1.3fr_1fr] items-stretch">
+              {/* Left Side: File Selection & Upload Button */}
+              <div className="flex flex-col justify-between rounded-xl border border-dashed border-purple-500/20 hover:border-purple-500/40 bg-black/30 p-5 min-h-[190px] transition">
+                <div>
+                  <input
+                    type="file"
+                    accept=".pdf,.docx,.doc,.txt,.md,.xlsx,.pptx"
+                    disabled={isUploading}
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                    className="mb-3 block w-full text-xs text-[#98A4C2] file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-[11px] file:font-semibold file:bg-purple-600/20 file:text-purple-300 hover:file:bg-purple-600/35 transition file:cursor-pointer"
+                  />
+                  <div className="text-xs text-[#98A4C2]">
+                    {selectedFile ? (
+                      <span className="font-medium text-purple-300 bg-purple-950/40 border border-purple-800/30 px-2.5 py-1 rounded-lg block truncate">
+                        📄 {selectedFile.name}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-[#687493]">Choose a document from your computer</span>
+                    )}
+                  </div>
+                </div>
 
-            {uploadError && (
-              <div className="mt-3 text-xs text-red-400 bg-red-950/30 border border-red-800/30 p-2.5 rounded-xl">
-                {uploadError}
+                <button
+                  onClick={handleUpload}
+                  disabled={!selectedFile || isUploading}
+                  className="w-full sm:w-auto mt-4 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-600/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isUploading ? 'Ingesting Document...' : 'Upload and Ingest 🚀'}
+                </button>
               </div>
-            )}
 
-            {uploadSuccess && (
-              <div className="mt-3 text-xs text-green-400 bg-green-950/30 border border-green-800/30 p-2.5 rounded-xl">
-                {uploadSuccess}
+              {/* Right Side: Status / Book Loader Panel */}
+              <div className="flex flex-col items-center justify-center p-5 border border-white/[0.06] rounded-xl bg-black/40 min-h-[190px] text-center">
+                {isUploading ? (
+                  <div className="scale-90 transition-all duration-300">
+                    <Loader />
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-w-[180px]">
+                    <div className="flex items-center justify-center gap-2 text-xs font-semibold text-slate-200">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+                      System Ready
+                    </div>
+                    <p className="text-[10px] text-[#687493] leading-relaxed">
+                      Select a file to begin vector indexing. Embedded text chunks will be analyzed in real time.
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           {/* Documents Table Card */}
@@ -278,7 +365,7 @@ export default function DocumentKnowledgePage() {
               </h2>
               <button
                 onClick={fetchDocuments}
-                className="text-[10px] text-slate-400 hover:text-white transition font-mono"
+                className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer"
               >
                 Refresh ⟳
               </button>
@@ -316,7 +403,7 @@ export default function DocumentKnowledgePage() {
 
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => handleDeleteDocument(doc.id)}
+                        onClick={() => handleDeleteDocument(doc.id, doc.name)}
                         className="p-1.5 hover:bg-red-950/30 text-slate-500 hover:text-red-400 rounded-lg transition cursor-pointer"
                         title="Delete Document"
                       >

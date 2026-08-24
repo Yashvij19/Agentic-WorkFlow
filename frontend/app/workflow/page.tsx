@@ -88,7 +88,7 @@ export default function WorkflowsDashboard() {
     const token = localStorage.getItem('token');
 
     const defaultNodes = [
-      { id: 'node_1', type: 'input', position: { x: 250, y: 50 }, data: { label: 'Webhook Trigger ⚡', output: 'explain the docker hub' } },
+      { id: 'node_1', type: 'input', position: { x: 250, y: 50 }, data: { label: 'Webhook Trigger', output: 'explain the docker hub' } },
       { id: 'node_2', type: 'agent', position: { x: 250, y: 200 }, data: { prompt: 'Summarize the input: {{node_1.output}}' } }
     ];
     const defaultEdges = [
@@ -263,6 +263,12 @@ export default function WorkflowsDashboard() {
               >
                 Workflows
                 <span className="absolute bottom-[-13px] left-0 right-0 h-[2px] bg-[#8B5CF6] rounded-full" />
+              </Link>
+              <Link 
+                href="/document" 
+                className="text-xs font-semibold tracking-wider uppercase text-[#98A4C2] hover:text-white transition duration-200"
+              >
+                Knowledge Base
               </Link>
               <span className="text-[10px] font-semibold tracking-wider uppercase text-[#687493] cursor-not-allowed select-none">
                 Agents

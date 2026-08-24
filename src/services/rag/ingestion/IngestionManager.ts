@@ -58,11 +58,15 @@ export class IngestionManager {
       // Save the Document record
       const document = await tx.document.create({
         data: {
-          name: parsedDoc.title,
+          name: input.name,
           mimeType: input.mimeType,
           source: input.source,
           rawContent: parsedDoc.rawContent,
-          normalizedContent: parsedDoc.normalizedContent,
+          //rawContent: The raw, unformatted text extracted directly from the file (e.g., text with messy line breaks, random spaces, or raw HTML tags).
+          // normalizedContent: Clean, structured Markdown (formatted with headers #, lists -, and clean tables |---|).
+          // if the custom parser dont genrate the normalized content we gracefully send the rawcontent as normalized since in oour 
+          // databse both are not null feild it work as safety net
+          normalizedContent:  parsedDoc.normalizedContent || (parsedDoc as any).normalized_content || parsedDoc.rawContent || '',
           organizationId: orgId,
           knowledgeSourceId: knowledgeSourceId || null,
         },

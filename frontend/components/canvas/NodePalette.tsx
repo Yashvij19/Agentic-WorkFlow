@@ -41,40 +41,39 @@ export default function NodePalette({
   };
 
   return (
-    <div className="h-full bg-[#030617] border-r border-white/[0.05] p-5 flex flex-col justify-between transition-all duration-300 relative z-30 w-64">
+    <div className="h-full bg-[#030617] border-r border-white/[0.05] p-5 flex flex-col justify-between transition-all duration-300 relative z-30 w-64 select-none">
       {/* Visual Glass Highlight on Sidebar Edge */}
       <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-gradient-to-b from-transparent via-white/5 to-transparent pointer-events-none" />
 
-      {/* Top Content: Branding & Navigation Groups */}
-      <div className="space-y-8">
-        
-        {/* 1. BRAND AREA */}
-        <div className="flex items-center justify-between border-b border-white/[0.04] pb-4">
-          <div className="flex items-center gap-3">
-            {/* Premium SVG Logo Icon inside rounded square */}
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center shadow-md shadow-violet-600/20">
-              <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-              </svg>
-            </div>
-            <span className="font-bold text-sm tracking-tight text-white select-none">
-              FlowAgent
-            </span>
-          </div>
-
-          {/* Close Sidebar Trigger (completely closes to hamburger overlay) */}
-          <button 
-            onClick={onClose} 
-            className="p-1 hover:bg-white/[0.04] rounded-lg text-slate-500 hover:text-white transition cursor-pointer"
-            title="Close Navigation Panel"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+      {/* 1. BRAND AREA (Fixed Header) */}
+      <div className="flex items-center justify-between border-b border-white/[0.04] pb-4 shrink-0">
+        <div className="flex items-center gap-3">
+          {/* Premium SVG Logo Icon inside rounded square */}
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center shadow-md shadow-violet-600/20">
+            <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
             </svg>
-          </button>
+          </div>
+          <span className="font-bold text-sm tracking-tight text-white select-none">
+            FlowAgent
+          </span>
         </div>
 
-        {/* 2. PRIMARY NAVIGATION GROUP */}
+        {/* Close Sidebar Trigger (completely closes to hamburger overlay) */}
+        <button 
+          onClick={onClose} 
+          className="p-1 hover:bg-white/[0.04] rounded-lg text-slate-500 hover:text-white transition cursor-pointer"
+          title="Close Navigation Panel"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* 2. SCROLLABLE MIDDLE CONTENT (Workspace Links + Draggable Node Palette) */}
+      <div className="flex-1 overflow-y-auto min-h-0 py-4 space-y-6 transparent-scrollbar pr-1">
+        {/* PRIMARY NAVIGATION GROUP */}
         <div className="space-y-1">
           <span className="block text-[9px] font-bold tracking-widest text-[#687493] uppercase mb-3 pl-2">
             Workspace
@@ -90,18 +89,6 @@ export default function NodePalette({
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9" />
             </svg>
             <span>Dashboard</span>
-          </Link>
-
-          {/* Documents / Knowledge Base Link */}
-          <Link 
-            href="/document"
-            className="flex items-center gap-3 py-2.5 rounded-xl text-xs transition duration-200 cursor-pointer px-3 text-[#98A4C2] hover:text-white hover:bg-white/[0.02]"
-            title="Knowledge Base Documents"
-          >
-            <svg className="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-            </svg>
-            <span>Knowledge Base</span>
           </Link>
 
           {/* Settings Link */}
@@ -195,9 +182,8 @@ export default function NodePalette({
         </div>
       </div>
 
-      {/* Bottom Content: User Profile, Collapse Button controls */}
-      <div className="space-y-4 pt-4 border-t border-white/[0.04]">
-        {/* User Account / Avatar Area */}
+      {/* 3. USER PROFILE (Fixed Footer) */}
+      <div className="pt-4 border-t border-white/[0.04] shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             {/* Avatar Circle */}

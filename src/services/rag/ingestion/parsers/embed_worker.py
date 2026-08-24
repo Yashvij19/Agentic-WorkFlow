@@ -22,7 +22,7 @@ def main():
         
         # Load local model and encode chunks in batches
         model=SentenceTransformer('BAAI/bge-m3')
-        embeddings=model.encode(texts , batch_size=8 , show_progress_bar=False)
+        embeddings=model.encode(texts , batch_size=32 , show_progress_bar=False)
 
         # Output standard JSON list of float arrays
         print(json.dumps(embeddings.tolist()))

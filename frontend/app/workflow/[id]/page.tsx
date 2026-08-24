@@ -47,6 +47,7 @@ export default function WorkflowWorkspace() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionMessage, setExecutionMessage] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [partialRunResult, setPartialRunResult] = useState<string | null>(null);
   const partialRunRef = useRef<{ runId: string | null; targetId: string | null }>({ runId: null, targetId: null });
 
@@ -362,7 +363,10 @@ export default function WorkflowWorkspace() {
           />
         ) : (
           <button 
-            onClick={() => setIsSidebarOpen(true)}
+            onClick={() => {
+              setIsSidebarOpen(true);
+              setIsLogsOpen(false);
+            }}
             className="absolute top-4 left-4 z-40 p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] backdrop-blur-md border border-white/10 hover:border-white/20 shadow-lg text-white cursor-pointer transition-all duration-200"
             title="Open Sidebar"
           >
@@ -412,7 +416,15 @@ export default function WorkflowWorkspace() {
       </div>
 
       {/* 5. Bottom Historical Executions Logs Drawer */}
-      <ExecutionHistory workflowId={id} />
+      <ExecutionHistory 
+        workflowId={id} 
+        isOpen={isLogsOpen}
+        onOpen={() => {
+          setIsLogsOpen(true);
+          setIsSidebarOpen(false);
+        }}
+        onClose={() => setIsLogsOpen(false)}
+      />
     </div>
   );
 }

@@ -6,12 +6,19 @@ import { API_URL } from '../../utils/config';
 
 interface ExecutionHistoryProps {
   workflowId: string;
+  isOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
 }
 
-export default function ExecutionHistory({ workflowId }: ExecutionHistoryProps) {
+export default function ExecutionHistory({ 
+  workflowId,
+  isOpen,
+  onOpen,
+  onClose,
+}: ExecutionHistoryProps) {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isOpen, setIsOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState<any | null>(null);
 
   const fetchHistory = async () => {
@@ -40,7 +47,7 @@ export default function ExecutionHistory({ workflowId }: ExecutionHistoryProps) 
       <div className="fixed bottom-0 left-0 right-0 h-10 bg-[#030617]/90 backdrop-blur-md border-t border-white/[0.05] flex items-center justify-between px-6 z-25 shadow-lg">
         <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">Execution History Logs</span>
         <button
-          onClick={() => setIsOpen(true)}
+          onClick={onOpen}
           className="text-[#8B5CF6] hover:text-[#7C3AED] text-[10px] font-bold tracking-widest uppercase transition duration-200 cursor-pointer"
         >
           Expand Logs Panel
@@ -63,7 +70,7 @@ export default function ExecutionHistory({ workflowId }: ExecutionHistoryProps) 
             Refresh
           </button>
           <button 
-            onClick={() => setIsOpen(false)} 
+            onClick={onClose} 
             className="px-3.5 py-1.5 bg-[#EF4444]/10 hover:bg-[#EF4444] border border-[#EF4444]/20 hover:border-transparent text-[#EF4444] hover:text-white text-[9px] font-bold tracking-wider uppercase rounded-lg transition duration-200 cursor-pointer"
           >
             Close

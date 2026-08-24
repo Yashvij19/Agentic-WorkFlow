@@ -105,7 +105,7 @@ def main():
         # SentenceTransformer downloads the model on the first run and caches it locally
 
         model=SentenceTransformer('BAAI/bge-m3')
-        embeddings=model.encode(chunk_texts , batch_size=8 , show_progress_bar=False)
+        embeddings=model.encode(chunk_texts , batch_size=32 , show_progress_bar=False)
 
         # 4. Assemble chunks with float vectors
 
