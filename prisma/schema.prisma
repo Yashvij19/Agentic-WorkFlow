@@ -13,10 +13,23 @@ datasource db {
   provider = "postgresql"
 }
 
+enum UserRole{
+  ADMIN
+  MEMBER
+  SINGLE
+}
 
+enum RegistrationRequestStatus{
+  PENDING
+  APPROVED
+  REJECTED
+}
 model Organization {
   id              String           @id @default(uuid())
   name            String
+  address         String?  // Added to support team admin details
+  inviteTokens    OrgInviteToken[]
+  registrationRequests  RegistrationRequest[]
   createdAt       DateTime         @default(now())
   
   // These are the relations. An organization "owns" all of these records.
@@ -26,18 +39,55 @@ model Organization {
   idempotencyKeys IdempotencyKey[]
 
   executions      WorkflowExecution[]
+
+   // Add these two relation fields here:
+  knowledgeSources KnowledgeSource[]
+  documents        Document[]
+   chunks           Chunk[]
+  chunkMetadata    ChunkMetadata[]
 }
 
 model User {
   id             String       @id @default(uuid())
   email          String       @unique
   passwordHash   String
+
+  role   UserRole @default(SINGLE)
+  permissions   Json? // Stores JSON-based granular permissions for MEMBERS
   createdAt      DateTime     @default(now())
   
   // Multi-tenant isolation link
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdWorkflows  Workflow[]
+  triggeredExecutions WorkflowExecution[]
 }
+
+
+model OrgInviteToken{
+  id  String  @id @default(uuid())
+  token String  @unique
+  createdAt DateTime  @default(now())
+  expiresAt DateTime  
+
+  organizationId  String
+  organization  Organization  @relation(fields:[organizationId] , references:[id] , onDelete:Cascade)
+}
+
+
+model RegistrationRequest{
+  id  String  @id @default(uuid())
+  email String  @unique
+  passwordHash  String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime  // Set to 2 days from creation
+  status  RegistrationRequestStatus  @default(PENDING) 
+  organizationId  String
+  organization Organization @relation(fields:[organizationId], references:[id] , onDelete:Cascade)
+
+}
+
 
 model Credential {
   id             String       @id @default(uuid())
@@ -65,6 +115,12 @@ model Workflow {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   executions      WorkflowExecution[]
+
+  createdByUserId String
+  creator User  @relation(fields:[createdByUserId] , references:[id] , onDelete:Cascade)
+
+  // Enforces unique name within the same organization
+  @@unique([organizationId ,name])
 }
 
 model IdempotencyKey {
@@ -91,6 +147,12 @@ model WorkflowExecution {
   logs           ExecutionLog[]
   startedAt      DateTime       @default(now())
   completedAt    DateTime?
+
+  // Triggerer link
+  triggeredByUserId String?
+  triggeredByUser   User?        @relation(fields: [triggeredByUserId], references: [id], onDelete: Cascade)
+
+  ragTraces      RagTrace[]
 }
 
 
@@ -107,4 +169,101 @@ model ExecutionLog {
 
   // Ensure a node is only logged once per execution to prevent duplicate inserts
   @@unique([executionId, nodeId]) 
+}
+
+model KnowledgeSource{
+  id  String  @id @default(uuid())
+  name  String
+  type  String   // e.g. "FILE", "URL", "TEXT"
+  status  String  // "PENDING", "PROCESSED", "FAILED"
+  organizationId  String
+  organization  Organization  @relation(fields:[organizationId] , references:[id] , onDelete:Cascade)
+  documents Document[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Document{
+  id  String  @id @default(uuid())
+  name  String
+  mimeType  String?
+  source  String?  // E.g., original filepath or source URL
+  rawContent  String  @db.Text
+  normalizedContent String  @db.Text
+  format  String  @default("MARKDOWN")
+  organizationId  String
+  organization  Organization  @relation(fields:[organizationId] , references:[id], onDelete:Cascade)
+  knowledgeSourceId String?
+  knowledgeSource KnowledgeSource?  @relation(fields:[knowledgeSourceId] , references:[id], onDelete:Cascade)
+  sections DocumentSection[]
+  chunks  Chunk[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+}
+
+model DocumentSection{
+    id         String           @id @default(uuid())
+    title      String?
+    content    String           @db.Text
+    documentId String
+    document   Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+    parentId   String?
+    parent     DocumentSection? @relation("SectionHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+    children   DocumentSection[] @relation("SectionHierarchy")
+    chunks     Chunk[]
+}
+
+
+model Chunk {
+  id            String           @id @default(uuid())
+  content       String           @db.Text
+  embeddingJson String?          @db.Text   // Stores serialized JSON array of floats for BAAI/bge-m3
+  documentId    String
+  document      Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  sectionId     String?
+  section       DocumentSection? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  parentId      String?          // Reference to parent chunk ID for hierarchical relationships
+  parent     Chunk?   @relation("ChunkHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+
+children   Chunk[]  @relation("ChunkHierarchy")
+
+  metadata      ChunkMetadata[]
+  createdAt     DateTime         @default(now())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+}
+
+
+model ChunkMetadata {
+  id      String @id @default(uuid())
+  chunkId String
+  chunk   Chunk  @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  key     String
+  value   Json // Can store booleans, numbers, arrays, strings
+
+  // Tenant security layer
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([chunkId, key])
+}
+
+
+model RagTrace {
+  id             String       @id @default(uuid())
+  nodeId         String
+  query          String       @db.Text
+  analysisJson   Json
+  planJson       Json
+  retrievedJson  Json
+  fusedJson      Json
+  rerankedJson   Json
+  contextString  String       @db.Text
+  answerString   String?      @db.Text
+  metricsJson    Json         // E.g., { latencyMs: 1240, tokenUsage: 450, cost: 0.0 }
+  createdAt      DateTime     @default(now())
+  executionId    String
+execution      WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
 }

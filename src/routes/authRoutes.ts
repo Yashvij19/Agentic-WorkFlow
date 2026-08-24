@@ -1,28 +1,52 @@
 import { FastifyInstance } from "fastify";
 import { AuthService } from "../services/authService";
-import { userInfo } from "node:os";
-import { error } from "node:console";
+
 
 export async function authRoutes(server:FastifyInstance){
     server.post('/api/auth/register', async(request ,reply)=>{
-        const {email , password , orgName}=request.body as any;
+        const {email , password , orgName , orgRole , inviteToken , address , registrationType}=request.body as any;
 
-        if(!email || !password){
-             return reply.code(400).send({ error: 'Email and password are required.' });
+        if(!email || !password || !registrationType){
+             return reply.code(400).send({ error: 'Email, password, and registrationType are required.' });
+        }
+          if (registrationType !== 'SINGLE' && registrationType !== 'ORGANIZATION') {
+            return reply.code(400).send({ error: 'registrationType must be either SINGLE or ORGANIZATION.' });
         }
 
         try{
-            const {user}=await AuthService.register(email , password, orgName );
+            const result = await AuthService.register({
+                email,
+                passwordPlain: password,
+                registrationType,
+                orgRole,
+                orgName,
+                address,
+                inviteToken
+            });
+
+            if(result.status==='PENDING'){
+                 return reply.code(202).send({
+                    status: 'PENDING',
+                     requestId: result.requestId,
+                    expiresAt: result.expiresAt,
+                    message: result.message
+                });
+            }
+              // APPROVED (SINGLE or ADMIN) - Generate JWT token and return session
+
+              const user=result.user!;
+              
             const token=server.jwt.sign({
                 id:user.id,
                 organizationId:user.organizationId,
-                email:user.email
+                email:user.email,
+                role:user.role
             });
 
             return reply.code(200).send({
                 message: 'Account registered successfully.',
                 token,
-                user: { id: user.id, email: user.email, organizationId: user.organizationId }
+                user: { id: user.id, email: user.email, organizationId: user.organizationId  , role:user.role}
             });
         }catch(error:any){
              return reply.code(400).send({ error: error.message });
@@ -43,12 +67,13 @@ export async function authRoutes(server:FastifyInstance){
                 id: user.id,
                 organizationId: user.organizationId,
                 email: user.email,
+                role:user.role
             });
 
             return reply.code(200).send({
                  message: 'Signed in successfully.',
                 token,
-                user: { id: user.id, email: user.email, organizationId: user.organizationId }
+                user: { id: user.id, email: user.email, organizationId: user.organizationId , role:user.role }
             });
             
         }catch(error:any){

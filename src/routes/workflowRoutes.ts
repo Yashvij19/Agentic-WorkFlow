@@ -1,10 +1,8 @@
-import fastify, { FastifyInstance } from "fastify";
+import  { FastifyInstance } from "fastify";
 import { workflowService } from "../services/workflowService";
-import { request } from "node:http";
-import { asyncWrapProviders } from "node:async_hooks";
 import { workflowQueue } from "../queues/workflowQueue";
 import { redisSubscriber } from "../utils/redis";
-
+import { prisma } from "../utils/db";
 
 
 export async function workflowRoutes(server: FastifyInstance) {
@@ -18,72 +16,155 @@ export async function workflowRoutes(server: FastifyInstance) {
     });
 
 
+     // Helper to map backend error messages to correct HTTP status codes
+    const handleRouteError = (err: any, reply: any) => {
+        if (err.message.includes("Access Denied")) {
+            return reply.code(403).send({ error: err.message });
+        }
+        if (err.message.includes("not found")) {
+            return reply.code(404).send({ error: err.message });
+        }
+        return reply.code(400).send({ error: err.message });
+    };
     // 1. Get all workflows
 
     server.get('/api/workflows', async (request, reply) => {
         const orgId = request.user.organizationId;
-        const list = await workflowService.getWorkflows(orgId);
-        return reply.send(list);
+        const userId=request.user.id;
+        const {scope}=request.query as {scope?:'me' | 'organization'}
+
+        try{
+            
+              const list = await workflowService.getWorkflows({
+                orgId,
+                userId,
+                scope: scope || 'organization'
+            });
+             return reply.send(list);
+        }catch (err: any) {
+             return handleRouteError(err, reply);
+        }
     });
 
     // 2. Get single workflow
 
     server.get('/api/workflow/:id', async (request, reply) => {
         const orgId = request.user.organizationId;
+        const userId=request.user.id;
         const { id } = request.params as any;
-
-        const workflow = await workflowService.getWorkflowById(orgId, id);
-
-        if (!workflow) return reply.code(404).send({ error: 'Workflow not found.' });
-        return reply.send(workflow);
+        try{
+            
+              const workflow = await workflowService.getWorkflowById(orgId, userId, id);
+            return reply.send(workflow);
+        }
+        catch (err: any) {
+              return handleRouteError(err, reply);
+        }
     });
 
-    // 3. Create workflow
+    // 3. Create workflow (Blocked if MEMBER has canCreateWorkflow = false)
 
     server.post("/api/workflow", async (request, reply) => {
         const orgId = request.user.organizationId;
+         const userId = request.user.id;
         const { name, nodes, edges } = request.body as any;
 
-        if (!nodes || !edges) {
-            return reply.code(400).send({ error: 'Nodes and edges are required.' });
-        }
-
-        try {
-            const workflow = await workflowService.createWorkflow(orgId, name, nodes, edges);
-            return reply.code(201).send({
+        try{
+               
+             if (!nodes || !edges) {
+                return reply.code(400).send({ error: 'Nodes and edges are required.' });
+            }
+             const workflow = await workflowService.createWorkflow(orgId, userId, name, nodes, edges);
+               return reply.code(201).send({
                 message: 'Workflow successfully deployed!',
                 workflowId: workflow.id,
             });
-        } catch (err: any) {
+        }catch (err: any) {
             return reply.code(400).send({ error: err.message });
         }
     });
 
+    // 4. Delete workflow (Blocked if MEMBER has canCreateWorkflow = false)
+
+    server.delete("/api/workflow/:id" ,async (request , reply)=>{
+         const orgId = request.user.organizationId;
+       const userId=request.user.id;
+        const { id } = request.params as any;
+
+        try{
+             
+            await workflowService.deleteWorkflow(orgId, userId, id);
+            return reply.send({ message: "Workflow successfully deleted." });
+
+        }catch(err:any){
+            return handleRouteError(err, reply);
+        }
+    } );
+
     // 5. Get execution history for a workflow
     server.get('/api/workflow/:id/executions', async (request, reply) => {
         const orgId = request.user.organizationId;
+        const userId = request.user.id;
         const { id } = request.params as any;
         try {
-            const history = await workflowService.getExecutionHistory(id, orgId);
+             const history = await workflowService.getExecutionHistory(id, orgId, userId);
             return reply.send(history);
         } catch (err: any) {
-            return reply.code(500).send({ error: err.message });
+            return handleRouteError(err, reply);
         }
     });
 
-    server.get('/api/workflows/failed-jobs', async (request, reply) => {
-        const failedJobs = await workflowQueue.getFailed();
-        const formatted = failedJobs.map((job) => ({
-            executionId: job.data.executionId,
-            workflowId: job.data.workflowId,
-            failedReasons: job.failedReason,
-            failedAt: new Date(job.finishedOn || 0).toString(),
-        }));
+     // 6. Get failed jobs from queue
 
-        return reply.send({
-            message: `Found ${failedJobs.length} jobs in the Dead Letter Queue.`,
-            deadLetters: formatted,
-        });
+    server.get('/api/workflows/failed-jobs', async (request, reply) => {
+        const orgId = request.user.organizationId;
+        const userId = request.user.id;
+
+      try{
+            const { role, permissions } =  await workflowService.getUserAccess(userId);
+            const failedJobs = await workflowQueue.getFailed();
+            
+            // Filter to only this organization's jobs
+            const orgJobs = failedJobs.filter(job => job.data.organizationId === orgId);
+            let allowedJobs = orgJobs;
+            if(role!=='ADMIN'){
+                const canViewTeamFailed=role==='MEMBER' && permissions.canViewTeamFailedExecutions===true;
+
+                if(!canViewTeamFailed){
+                    const executionIds=orgJobs.map(j=>j.data.executionId).filter(Boolean);
+                    const userExecutions=await prisma.workflowExecution.findMany({
+                        where:{
+                            id:{
+                                in:executionIds
+                            },
+                            triggeredByUserId:userId
+                        },
+                        select:{
+                            id:true
+                        }
+                    });
+                    const userExecutionIdsSet=new Set(userExecutions.map(e=>e.id));
+                    allowedJobs=orgJobs.filter(job=>
+                        userExecutionIdsSet.has(job.data.executionId)
+                    );
+                }
+                }
+                         const formatted = allowedJobs.map((job) => ({
+                        executionId: job.data.executionId,
+                        workflowId: job.data.workflowId,
+                        failedReasons: job.failedReason,
+                        failedAt: new Date(job.finishedOn || 0).toString(),
+                    }));
+                    return reply.send({
+                        message: `Found ${formatted.length} jobs in the Dead Letter Queue.`,
+                        deadLetters: formatted,
+                    });
+            }
+      
+      catch(err:any){
+                return reply.code(500).send({ error: err.message });
+            }
+        
     });
 
 
@@ -92,41 +173,41 @@ export async function workflowRoutes(server: FastifyInstance) {
     // 7. Live Telemetry WebSocket route (Secure & Safe Socket version)
 
 
-    server.register(async (fastify) => {
-        fastify.get('/api/workflow/live', { websocket: true }, (connection, req) => {
-            server.log.info('📡 Frontend Canvas connected to Live Telemetry.');
-
+     server.register(async (fastify) => {
+        fastify.get('/api/workflow/live', { websocket: true }, async (connection, req) => {
             const url = new URL(req.url || "", 'http://localhost');
             const token = url.searchParams.get('token');
-
+            const socket = connection.socket || connection;
             if (!token) {
-                server.log.warn("Connection rejected: Missing token.");
-                // Safe check for close method
-                const socket = connection.socket || connection;
                 socket.close(4001, 'Unauthorized: Token required');
                 return;
             }
-
             let user: any;
+            let role: string;
+            let permissions: any;
             try {
                 user = server.jwt.verify(token);
-                server.log.info(`🔌 Authenticated socket user for organization: ${user.organizationId}`);
+                // Dynamically fetch permissions from database to ensure fresh data
+                const access = await workflowService.getUserAccess(user.id);
+                role = access.role;
+                permissions = access.permissions;
             } catch (err) {
-                server.log.warn('🔌 Connection rejected: Invalid token.');
-                const socket = connection.socket || connection;
                 socket.close(4002, 'Unauthorized: Invalid token');
                 return;
             }
-
-            // Create a safe reference to the active socket
-            const socket = connection.socket || connection;
-
             const onMessage = (channel: string, message: string) => {
                 if (channel === 'telemetry') {
                     try {
                         const telemetryData = JSON.parse(message);
-                        // Strict isolation check: Only send to client if the organization IDs match
                         if (telemetryData.organizationId === user.organizationId) {
+                            
+                            // Secure dynamic check: If user is a member without team telemetry access, 
+                            // only send updates on executions they triggered.
+                            if (role === 'MEMBER' && permissions.canViewTeamExecutions === false) {
+                                if (telemetryData.triggeredByUserId !== user.id) {
+                                    return; // Filter it out
+                                }
+                            }
                             socket.send(message);
                         }
                     } catch (parseError: any) {
@@ -134,18 +215,11 @@ export async function workflowRoutes(server: FastifyInstance) {
                     }
                 }
             };
-
-            redisSubscriber.subscribe('telemetry', (err: any) => {
-                if (err) server.log.error('Failed to subscribe to telemetry:', err.message);
-            });
-
+            redisSubscriber.subscribe('telemetry');
             redisSubscriber.on('message', onMessage);
-
             socket.on('close', () => {
-                server.log.info('🔌 Frontend Canvas disconnected.');
                 redisSubscriber.off('message', onMessage);
             });
-
         });
     });
 
@@ -155,9 +229,11 @@ export async function workflowRoutes(server: FastifyInstance) {
     server.post("/api/workflow/:id/execute", async (request, reply) => {
         const orgId = request.user.organizationId;
         const { id } = request.params as any;
+        const userId = request.user.id;
 
         try {
-            const execution = await workflowService.triggerExecution(orgId, id);
+             
+            const execution = await workflowService.triggerExecution(orgId,id ,userId);
 
             return reply.code(202).send({
                 message: 'Workflow execution triggered successfully.',
@@ -175,6 +251,7 @@ export async function workflowRoutes(server: FastifyInstance) {
         const orgId=request.user.organizationId;
         const {id}=request.params as any;
         const {nodeId}=request.body as any;  // The node we want to run up to
+        const userId = request.user.id;
 
         
         if (!nodeId) {
@@ -182,7 +259,7 @@ export async function workflowRoutes(server: FastifyInstance) {
         }
 
         try{
-            const execution=await workflowService.triggerPartialExecution(orgId ,id, nodeId );
+             const execution = await workflowService.triggerPartialExecution(orgId, id, nodeId, userId);
                return reply.code(202).send({
                 message: `Partial workflow execution up to node '${nodeId}' triggered.`,
                 executionId: execution.id,

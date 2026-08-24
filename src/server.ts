@@ -8,8 +8,8 @@ import { redisConnection } from './utils/redis';
 import { authRoutes } from './routes/authRoutes';
 import { workflowRoutes } from './routes/workflowRoutes';
 import { credentialRoutes } from './routes/credentialRoutes';
-
-
+import { adminRoutes } from './routes/adminRoutes';
+import { ragRoutes } from './routes/ragRoutes';
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
     throw new Error("JWT_SECRET environment variable is required");
@@ -45,12 +45,15 @@ declare module '@fastify/jwt'{
         payload:{
             id:string , 
             organizationId:string,
-            email:string
+            email:string,
+            role:string
         };
         user:{
             id:string,
             organizationId:string,
-            email:string
+            email:string,
+            role:string
+
         };
     }
 }
@@ -112,7 +115,8 @@ server.decorate('authenticate' , async function (request:any, reply:any){
 server.register(authRoutes);
 server.register(workflowRoutes);
 server.register(credentialRoutes);
-
+server.register(adminRoutes);
+server.register(ragRoutes);
 
 const start=async ()=>{
     try{
