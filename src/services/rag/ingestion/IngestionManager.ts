@@ -5,9 +5,11 @@ import * as fs from 'fs/promises';
 import { prisma } from '../../../utils/db';
 import { IngestionInput, NormalizedDocument, RAGConfiguration } from '../types';
 import { NativeParser } from './NativeParser';
+import { HierarchicalChunker } from './chunking/HierarchicalChunker';
 
 export class IngestionManager {
   private nativeParser = new NativeParser();
+   private hierarchicalChunker = new HierarchicalChunker();
 
   /**
    * Orchestrates the parsing, chunking, and database indexing of a document.
@@ -31,6 +33,7 @@ export class IngestionManager {
       });
     }
 
+     const documentContent = parsedDoc.normalizedContent || parsedDoc.rawContent || '';
     // 2. Perform Database Transaction (Clean existing records + Save new)
     return await prisma.$transaction(async (tx) => {
       // Find if a document with this name already exists under the same organization
@@ -72,38 +75,125 @@ export class IngestionManager {
         },
       });
 
-      // Index chunks, embeddings, and metadata
-      for (const chunk of parsedDoc.chunks) {
-        // Create Chunk record
-        const dbChunk = await tx.chunk.create({
-          data: {
-            content: chunk.content,
-            // embeddings are converted to a JSON string array of floats for CPU fallback calculations
-            embeddingJson: chunk.embedding ? JSON.stringify(chunk.embedding) : null,
-            documentId: document.id,
-            organizationId: orgId,
-          },
+       // 3. Check if Hierarchical Chunking is enabled
+      const isHierarchical =
+        config.ingestion.chunkStrategy === 'hierarchical' ||
+        config.context?.strategy === 'parent_child';
+      if (isHierarchical) {
+        // Run Hierarchical Chunking
+        const parentChunks = this.hierarchicalChunker.chunkDocument(documentContent);
+        // Collect all child chunk texts to generate embeddings in one single batch
+        const allChildTexts: string[] = [];
+        parentChunks.forEach((p) => {
+          p.children.forEach((c) => allChildTexts.push(c.content));
         });
-
-        // Add chunk index and filename metadata
-        const metadataItems = Object.entries(chunk.metadata).map(([key, val]) => ({
-          chunkId: dbChunk.id,
-          key,
-          value: JSON.stringify(val), // Stored as Json type in DB
-          organizationId: orgId,
-        }));
-
-        if (metadataItems.length > 0) {
-          await tx.chunkMetadata.createMany({
-            data: metadataItems,
+        const childEmbeddings =
+          allChildTexts.length > 0 ? await this.generateEmbeddingsBatch(allChildTexts) : [];
+        let childEmbeddingIndex = 0;
+        for (const parent of parentChunks) {
+          // Create Parent Chunk in DB (Parent holds full context, no vector search needed)
+          const dbParent = await tx.chunk.create({
+            data: {
+              content: parent.content,
+              documentId: document.id,
+              organizationId: orgId,
+            },
           });
+          // Insert Child Chunks linked to dbParent.id
+          for (const child of parent.children) {
+            const embedding = childEmbeddings[childEmbeddingIndex++];
+            const dbChild = await tx.chunk.create({
+              data: {
+                content: child.content,
+                embeddingJson: embedding ? JSON.stringify(embedding) : null,
+                parentId: dbParent.id, // Relation linkage
+                documentId: document.id,
+                organizationId: orgId,
+              },
+            });
+            // Metadata tagging for neighbor window & parent tracking
+            const metadataItems = [
+              { key: 'sequenceIndex', value: JSON.stringify(child.sequenceIndex) },
+              { key: 'parentId', value: JSON.stringify(dbParent.id) },
+              { key: 'filename', value: JSON.stringify(input.name) },
+            ].map((m) => ({
+              chunkId: dbChild.id,
+              key: m.key,
+              value: m.value,
+              organizationId: orgId,
+            }));
+            await tx.chunkMetadata.createMany({
+              data: metadataItems,
+            });
+          }
+        }
+      } else {
+        // Standard Flat Chunking
+        let seq = 0;
+        for (const chunk of parsedDoc.chunks) {
+          seq++;
+          const dbChunk = await tx.chunk.create({
+            data: {
+              content: chunk.content,
+              embeddingJson: chunk.embedding ? JSON.stringify(chunk.embedding) : null,
+              documentId: document.id,
+              organizationId: orgId,
+            },
+          });
+          const metadataItems = Object.entries({
+            ...chunk.metadata,
+            sequenceIndex: seq,
+          }).map(([key, val]) => ({
+            chunkId: dbChunk.id,
+            key,
+            value: JSON.stringify(val),
+            organizationId: orgId,
+          }));
+          if (metadataItems.length > 0) {
+            await tx.chunkMetadata.createMany({
+              data: metadataItems,
+            });
+          }
         }
       }
-
       return document.id;
     });
   }
 
+   /**
+   * Generates vector embeddings for an array of strings in batches using embed_worker.py.
+   */
+  private async generateEmbeddingsBatch(texts: string[]): Promise<number[][]> {
+    const scriptPath = path.resolve(__dirname, 'parsers', 'embed_worker.py');
+    return new Promise((resolve, reject) => {
+      const child = spawn('python', [scriptPath]);
+      let stdoutData = '';
+      let stderrData = '';
+      child.stdout.on('data', (data) => {
+        stdoutData += data.toString();
+      });
+      child.stderr.on('data', (data) => {
+        stderrData += data.toString();
+      });
+      child.on('close', (code) => {
+        if (code !== 0) {
+          return reject(
+            new Error(`Batch embedding worker failed with code ${code}. Stderr: ${stderrData}`)
+          );
+        }
+        try {
+          const parsed = JSON.parse(stdoutData.trim());
+          resolve(parsed);
+        } catch (err: any) {
+          reject(new Error(`Failed to parse batch embeddings: ${err.message}. Raw: ${stdoutData}`));
+        }
+      });
+      child.stdin.write(JSON.stringify(texts));
+      child.stdin.end();
+    });
+  }
+
+  
   /**
    * Router rules deciding between Native and MarkItDown parsing.
    */

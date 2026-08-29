@@ -273,7 +273,55 @@ export default function PropertiesPanel({
                   </div>
                 )}
 
-                {/* 5. Citation Format */}
+                {/* 5. Phase 3: Context Expansion Strategy */}
+                <div className="pt-2 border-t border-white/[0.05]">
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                    Context Expansion Strategy
+                  </label>
+                  <select
+                    value={data.context?.strategy || 'top_chunks'}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        context: {
+                          ...(data.context || {}),
+                          strategy: e.target.value,
+                        },
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white"
+                  >
+                    <option value="top_chunks">Standard Top Chunks (Default)</option>
+                    <option value="parent_child">Parent-Child (Inject Full Parent)</option>
+                    <option value="neighbors">Neighbor Window (Stitch Surrounding)</option>
+                  </select>
+                </div>
+
+                {/* 6. Phase 3: Max Token Budget */}
+                <div>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                    Max Context Tokens: {data.context?.maxTokens || 4000}
+                  </label>
+                  <input
+                    type="range"
+                    min="1000"
+                    max="12000"
+                    step="500"
+                    value={data.context?.maxTokens || 4000}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        context: {
+                          ...(data.context || {}),
+                          maxTokens: parseInt(e.target.value),
+                        },
+                      })
+                    }
+                    className="w-full accent-purple-500 cursor-pointer"
+                  />
+                </div>
+
+                {/* 7. Citation Format */}
                 <div className="pt-2 border-t border-white/[0.05]">
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">Citation Format</label>
                   <select

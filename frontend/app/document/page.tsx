@@ -32,6 +32,8 @@ interface TestQueryResult {
       score: number;
       snippet: string;
       initialRank?: number;
+      isParentExpanded?: boolean;
+      isNeighborStitched?: boolean;
     }>;
   };
 }
@@ -42,11 +44,13 @@ export default function DocumentKnowledgePage() {
   
   // Upload State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadChunkStrategy, setUploadChunkStrategy] = useState<'recursive' | 'hierarchical'>('hierarchical');
   const [isUploading, setIsUploading] = useState(false);
 
   // Playground test state
   const [testQuery, setTestQuery] = useState('');
   const [rerankerChoice, setRerankerChoice] = useState<'none' | 'local_cross_encoder' | 'simple_lexical'>('local_cross_encoder');
+  const [contextStrategyChoice, setContextStrategyChoice] = useState<'top_chunks' | 'parent_child' | 'neighbors'>('parent_child');
   const [isTesting, setIsTesting] = useState(false);
   const [queryResult, setQueryResult] = useState<TestQueryResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
@@ -111,6 +115,13 @@ export default function DocumentKnowledgePage() {
               mimeType: selectedFile.type || 'text/plain',
               source: selectedFile.name,
               base64Buffer,
+              config: {
+                ingestion: {
+                  chunkStrategy: uploadChunkStrategy,
+                  chunkSize: 800,
+                  chunkOverlap: 100,
+                },
+              },
             }),
           });
 
@@ -244,6 +255,11 @@ export default function DocumentKnowledgePage() {
               provider: rerankerChoice,
               topN: 5,
             },
+            context: {
+              strategy: contextStrategyChoice,
+              maxTokens: 4000,
+              citationMode: 'inline',
+            },
           },
         }),
       });
@@ -284,7 +300,7 @@ export default function DocumentKnowledgePage() {
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-tight text-white">Knowledge Base & RAG Index</h1>
-              <p className="text-[10px] text-[#687493]">Upload documents and test cross-encoder semantic retrieval</p>
+              <p className="text-[10px] text-[#687493]">Upload documents and test parent-child semantic retrieval</p>
             </div>
           </div>
         </div>
@@ -316,21 +332,37 @@ export default function DocumentKnowledgePage() {
                 </div>
               </div>
               <span className="text-[9px] font-mono text-purple-400 bg-purple-950/40 border border-purple-800/30 px-2 py-0.5 rounded">
-                bge-m3 1024d + Cross-Encoder
+                bge-m3 + Hierarchical
               </span>
             </div>
 
             {/* Grid: Upload & Status */}
             <div className="grid gap-5 md:grid-cols-[1.3fr_1fr] items-stretch">
-              <div className="flex flex-col justify-between rounded-xl border border-dashed border-purple-500/20 hover:border-purple-500/40 bg-black/30 p-5 min-h-[190px] transition">
-                <div>
+              <div className="flex flex-col justify-between rounded-xl border border-dashed border-purple-500/20 hover:border-purple-500/40 bg-black/30 p-5 min-h-[220px] transition">
+                <div className="space-y-3">
                   <input
                     type="file"
                     accept=".pdf,.docx,.doc,.txt,.md,.xlsx,.pptx"
                     disabled={isUploading}
                     onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                    className="mb-3 block w-full text-xs text-[#98A4C2] file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-[11px] file:font-semibold file:bg-purple-600/20 file:text-purple-300 hover:file:bg-purple-600/35 transition file:cursor-pointer"
+                    className="block w-full text-xs text-[#98A4C2] file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-[11px] file:font-semibold file:bg-purple-600/20 file:text-purple-300 hover:file:bg-purple-600/35 transition file:cursor-pointer"
                   />
+                  
+                  {/* Chunking Strategy Option */}
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
+                      Chunking Architecture
+                    </label>
+                    <select
+                      value={uploadChunkStrategy}
+                      onChange={(e) => setUploadChunkStrategy(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none"
+                    >
+                      <option value="hierarchical">Hierarchical (Parent ~3000ch + Child ~600ch)</option>
+                      <option value="recursive">Recursive Paragraph Split (~800ch)</option>
+                    </select>
+                  </div>
+
                   <div className="text-xs text-[#98A4C2]">
                     {selectedFile ? (
                       <span className="font-medium text-purple-300 bg-purple-950/40 border border-purple-800/30 px-2.5 py-1 rounded-lg block truncate">
@@ -457,20 +489,37 @@ export default function DocumentKnowledgePage() {
                 />
               </div>
 
-              {/* Reranker Strategy Selector */}
-              <div>
-                <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1.5">
-                  Reranker Strategy
-                </label>
-                <select
-                  value={rerankerChoice}
-                  onChange={(e) => setRerankerChoice(e.target.value as any)}
-                  className="w-full px-3.5 py-2 bg-black/45 border border-white/10 rounded-xl text-xs text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
-                >
-                  <option value="local_cross_encoder">Local Cross-Encoder (Neural Attention)</option>
-                  <option value="simple_lexical">Simple Lexical (Exact Phrase Density)</option>
-                  <option value="none">None (Standard RRF)</option>
-                </select>
+              {/* Reranker & Context Expansion Grid */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
+                    Reranker
+                  </label>
+                  <select
+                    value={rerankerChoice}
+                    onChange={(e) => setRerankerChoice(e.target.value as any)}
+                    className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
+                  >
+                    <option value="local_cross_encoder">Cross-Encoder (Neural)</option>
+                    <option value="simple_lexical">Simple Lexical</option>
+                    <option value="none">None (RRF)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
+                    Context Expansion
+                  </label>
+                  <select
+                    value={contextStrategyChoice}
+                    onChange={(e) => setContextStrategyChoice(e.target.value as any)}
+                    className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
+                  >
+                    <option value="parent_child">Parent-Child (Full Context)</option>
+                    <option value="neighbors">Neighbor Window (Stitched)</option>
+                    <option value="top_chunks">Top Chunks (Default)</option>
+                  </select>
+                </div>
               </div>
 
               <button
@@ -478,7 +527,7 @@ export default function DocumentKnowledgePage() {
                 disabled={isTesting}
                 className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/20 transition cursor-pointer disabled:opacity-50"
               >
-                {isTesting ? 'Searching & Reranking...' : 'Test Retrieval & Answer ⚡'}
+                {isTesting ? 'Searching, Reranking & Expanding...' : 'Test Retrieval & Answer ⚡'}
               </button>
             </form>
 
@@ -504,12 +553,12 @@ export default function DocumentKnowledgePage() {
                   </p>
                 </div>
 
-                {/* Citations & Chunks with Initial vs Reranked Rank */}
+                {/* Citations & Chunks with Initial vs Reranked Rank & Expansion Badges */}
                 {queryResult.context.citations.length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">
-                        Top Reranked Chunks ({queryResult.context.citations.length})
+                        Final Context Chunks ({queryResult.context.citations.length})
                       </span>
                       {queryResult.fusedCount && (
                         <span className="text-[9px] text-slate-500 font-mono">
@@ -522,10 +571,10 @@ export default function DocumentKnowledgePage() {
                       {queryResult.context.citations.map((cit) => (
                         <div
                           key={cit.index}
-                          className="bg-black/30 border border-white/[0.04] p-3 rounded-xl space-y-1 text-left"
+                          className="bg-black/30 border border-white/[0.04] p-3 rounded-xl space-y-1.5 text-left"
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between flex-wrap gap-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-[10px] font-bold text-slate-200">
                                 [{cit.index}] {cit.documentTitle}
                               </span>
@@ -534,12 +583,22 @@ export default function DocumentKnowledgePage() {
                                   Pre-rank #{cit.initialRank} ➔ #{cit.index}
                                 </span>
                               )}
+                              {cit.isParentExpanded && (
+                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
+                                  🌲 Parent Expanded
+                                </span>
+                              )}
+                              {cit.isNeighborStitched && (
+                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/40">
+                                  🧵 Neighbor Stitched
+                                </span>
+                              )}
                             </div>
                             <span className="text-[9px] font-mono text-purple-400">
                               Score: {cit.score}
                             </span>
                           </div>
-                          <p className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed">
+                          <p className="text-[10px] text-slate-400 line-clamp-3 leading-relaxed">
                             {cit.snippet}
                           </p>
                         </div>

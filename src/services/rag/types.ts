@@ -5,7 +5,7 @@
 export type RAGMode = 'simple' | 'advanced';
 export type UseCaseProfile = 'GENERAL_QA' | 'TECHNICAL_DOCUMENTATION' | 'COMPANY_POLICY' | 'DATABASE_KNOWLEDGE' | 'CUSTOM';
 export type ParserType = 'auto' | 'native' | 'markitdown';
-export type ChunkStrategy = 'recursive' | 'section' | 'fixed';
+export type ChunkStrategy = 'recursive' | 'section' | 'fixed' | 'hierarchical';
 export type RetrievalMode = 'vector' | 'keyword' | 'hybrid' | 'adaptive';
 export type CitationMode = 'none' | 'inline' | 'source_list';
 export type RerankerProvider = 'none' | 'local_cross_encoder' | 'simple_lexical' | 'cohere';

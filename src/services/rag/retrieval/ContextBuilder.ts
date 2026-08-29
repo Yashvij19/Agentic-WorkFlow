@@ -1,68 +1,70 @@
 import { it } from 'node:test';
 import { RetrievalResult, RAGConfiguration, CitationMode } from '../types';
-export interface CitationItem{
-    index:number;
-    chunkId:string;
-    documentId:string;
-    documentTitle:string;
-    source:string;
-    score:number;
-    snippet:string;
+export interface CitationItem {
+  index: number;
+  chunkId: string;
+  documentId: string;
+  documentTitle: string;
+  source: string;
+  score: number;
+  snippet: string;
+  initialRank?: number;
+  isParentExpanded?: boolean;
+  isNeighborStitched?: boolean;
 }
 
-export interface BuiltContext{
-    contextText:string;
-    citations:CitationItem[];
-    tokensUsedEstimate:number;
-    totalChunksUsed:number;
+export interface BuiltContext {
+  contextText: string;
+  citations: CitationItem[];
+  tokensUsedEstimate: number;
+  totalChunksUsed: number;
 }
 
-export class ContextBuilder{
+export class ContextBuilder {
+  // Approximate character-to-token ratio (1 token ~ 4 characters in English)
+  private readonly CHARS_PER_TOKEN = 4;
 
-    // Approximate character-to-token ratio (1 token ~ 4 characters in English)
-    private readonly CHARS_PER_TOKEN=4;
-
-    /**
+  /**
    * Transforms raw retrieval results into a formatted, deduplicated,
    * and token-budgeted context string with structured citations.
    */
+  buildContext(result: RetrievalResult[], config: RAGConfiguration): BuiltContext {
+    const maxTokens = config.context?.maxTokens || 4000;
+    const citationMode: CitationMode = config.context?.citationMode || 'inline';
 
-    buildContext(result:RetrievalResult[] , config:RAGConfiguration):BuiltContext{
+    // 1. Deduplicate chunks by chunkId
+    const uniqueResults = this.deduplicate(result);
 
-        const maxTokens=config.context?.maxTokens || 4000;
-        const citationMode:CitationMode=config.context.citationMode || "inline";
+    // 2. Sort results descending by score
+    uniqueResults.sort((a, b) => b.score - a.score);
 
-        // 1. Deduplicate chunks by chunkId
-        const uniqueResults= this.deduplicate(result);
+    // 3. Assemble chunks within the token budget
+    const selectedChunks: RetrievalResult[] = [];
+    let currentTokenEstimate = 0;
 
-          // 2. Sort results descending by score
-          uniqueResults.sort((a,b)=> b.score-a.score);
+    for (const chunk of uniqueResults) {
+      const chunkTokenEstimate = this.estimateTokens(chunk.content);
+      if (currentTokenEstimate + chunkTokenEstimate > maxTokens && selectedChunks.length > 0) {
+        // Budget reached; stop packing more chunks
+        break;
+      }
+      selectedChunks.push(chunk);
+      currentTokenEstimate += chunkTokenEstimate;
+    }
 
-         // 3. Assemble chunks within the token budget 
-         const selectedChunks:RetrievalResult[]=[];
-         let currentTokenEstimate=0;
-
-         for(const chunk of uniqueResults){
-            const chunkTokenEstimate= this.estimateTokens(chunk.content);
-            if( currentTokenEstimate+chunkTokenEstimate > maxTokens && selectedChunks.length>0){
-                // Budget reached; stop packing more chunks
-                break;
-            }
-            selectedChunks.push(chunk);
-            currentTokenEstimate+=chunkTokenEstimate;
-         }
-
-         // 4. Build citations and formatted text
-
-         const citations:CitationItem[]=selectedChunks.map((chunk, idx)=>({
-            index:idx+1,
-            chunkId:chunk.chunkId,
-            documentId:chunk.documentId,
-            documentTitle:chunk.title || "Untitled Document",
-            source:chunk.source || 'Local Upload',
-            score:Number(chunk.score.toFixed(4)),
-            snippet:chunk.content.slice(0,150)+(chunk.content.length>150 ? '...':''),
-         }));
+    // 4. Build citations and formatted text
+    const citations: CitationItem[] = selectedChunks.map((chunk, idx) => ({
+      index: idx + 1,
+      chunkId: chunk.chunkId,
+      documentId: chunk.documentId,
+      documentTitle: chunk.title || 'Untitled Document',
+      source: chunk.source || 'Local Upload',
+      score: Number(chunk.score.toFixed(4)),
+      snippet: chunk.content.slice(0, 200) + (chunk.content.length > 200 ? '...' : ''),
+      initialRank: chunk.initialRank,
+      isParentExpanded: !!chunk.metadata?.isParentExpanded,
+      isNeighborStitched: !!chunk.metadata?.isNeighborStitched,
+    }));
 
          const contextText=this.formatContextString(selectedChunks , citations ,citationMode);
 
