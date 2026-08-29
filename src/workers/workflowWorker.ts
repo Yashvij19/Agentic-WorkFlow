@@ -293,6 +293,7 @@ try{
         retrievedCount: ragResult.retrievedCount,
         latencyMs: ragResult.latencyMs,
         traceId: ragResult.traceId,
+        metrics: ragResult.metrics,
       };
     }else{
       stepResult=node.data?.output ;

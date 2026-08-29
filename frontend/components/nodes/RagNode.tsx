@@ -78,7 +78,26 @@ export default function RagNode({ id, data }: NodeProps) {
           {data.query || 'Define search query or variable...'}
         </p>
 
-        {statusBadge && <div className="flex justify-end">{statusBadge}</div>}
+        <div className="flex items-center justify-between pt-1">
+          {statusBadge || <div />}
+          {data.status === 'COMPLETED' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (data.onInspectTrace) {
+                  data.onInspectTrace(id);
+                } else {
+                  // Dispatch custom event for canvas listener
+                  window.dispatchEvent(new CustomEvent('inspect-rag-trace', { detail: { nodeId: id } }));
+                }
+              }}
+              className="text-[9px] font-mono font-bold bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 px-2 py-0.5 rounded transition cursor-pointer flex items-center gap-1 shadow-sm"
+              title="Inspect RAG Telemetry Trace"
+            >
+              <span>📊</span> Trace
+            </button>
+          )}
+        </div>
       </div>
 
       <Handle type="source" position={Position.Bottom} className="w-2.5 h-2.5 bg-purple-500 border border-[#030617]" />

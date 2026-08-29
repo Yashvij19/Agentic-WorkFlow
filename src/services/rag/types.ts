@@ -108,3 +108,30 @@ export interface RerankOptions {
 export interface IReranker{
   rerank(query:string , candidates:RetrievalResult[] , options:RerankOptions):Promise<RetrievalResult[]>;
 }
+
+export interface RagTimingBreakdown {
+  analysisMs: number;
+  retrievalMs: number;
+  fusionMs: number;
+  rerankMs: number;
+  expansionMs: number;
+  graphMs: number;
+  contextBuildMs: number;
+  generationMs: number;
+  totalMs: number;
+}
+
+export interface RagTraceMetrics {
+  latencyMs: number;
+  timing: RagTimingBreakdown;
+  chunksRetrieved: number;
+  chunksFused: number;
+  chunksReranked: number;
+  hasGraphContext: boolean;
+  graphEdgesFound: number;
+  chunksUsed: number;
+  tokensUsedEstimate: number;
+  estimatedPromptTokens: number;
+  estimatedCompletionTokens: number;
+  estimatedCostUsd: number;
+}

@@ -243,21 +243,20 @@ export async function ragRoutes(server: FastifyInstance) {
     })
 
     /**
-  * GET /api/rag/traces/:executionId/:nodeId
-  * Retrieves telemetry trace for an executed RAG node.
-  */
-
+   * GET /api/rag/traces/:executionId/:nodeId
+   * Retrieves telemetry trace for an executed RAG node.
+   */
     server.get(
         '/api/rag/traces/:executionId/:nodeId',
         async (request: FastifyRequest, reply: FastifyReply) => {
-
             const { executionId, nodeId } = request.params as { executionId: string, nodeId: string };
             try {
                 const trace = await prisma.ragTrace.findFirst({
                     where: { executionId, nodeId },
+                    orderBy: { createdAt: 'desc' }
                 });
                 if (!trace) {
-                    return reply.code(404).send({ error: 'RAG Trace not found. ' })
+                    return reply.code(404).send({ error: 'RAG Trace not found.' });
                 }
                 return reply.code(200).send({
                     trace
@@ -266,9 +265,62 @@ export async function ragRoutes(server: FastifyInstance) {
                 server.log.error(err);
                 return reply.code(500).send({ error: err.message });
             }
-
-
         });
+
+    /**
+   * GET /api/rag/trace/:traceId
+   * Retrieves telemetry trace directly by traceId.
+   */
+    server.get(
+        '/api/rag/trace/:traceId',
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            const { traceId } = request.params as { traceId: string };
+            try {
+                const trace = await prisma.ragTrace.findUnique({
+                    where: { id: traceId },
+                });
+                if (!trace) {
+                    return reply.code(404).send({ error: 'RAG Trace not found.' });
+                }
+                return reply.code(200).send({
+                    trace
+                });
+            } catch (err: any) {
+                server.log.error(err);
+                return reply.code(500).send({ error: err.message });
+            }
+        });
+
+    /**
+   * GET /api/rag/traces/node/:nodeId
+   * Retrieves the latest telemetry trace for a node in the organization.
+   */
+    server.get(
+        '/api/rag/traces/node/:nodeId',
+        async (request: FastifyRequest, reply: FastifyReply) => {
+            const orgId = request.user.organizationId;
+            const { nodeId } = request.params as { nodeId: string };
+            try {
+                const trace = await prisma.ragTrace.findFirst({
+                    where: {
+                        nodeId,
+                        execution: {
+                            organizationId: orgId
+                        }
+                    },
+                    orderBy: { createdAt: 'desc' }
+                });
+                if (!trace) {
+                    return reply.code(404).send({ error: 'RAG Trace not found for this node.' });
+                }
+                return reply.code(200).send({ trace });
+            } catch (err: any) {
+                server.log.error(err);
+                return reply.code(500).send({ error: err.message });
+            }
+        });
+
+
 
     /**
 * GET /api/rag/export/:documentId

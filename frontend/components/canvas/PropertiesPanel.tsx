@@ -10,6 +10,7 @@ interface PropertiesPanelProps {
   onExecuteUpToNode: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   partialRunResult: string | null;
+  onOpenTraceModal?: (nodeId: string) => void;
 }
 
 export default function PropertiesPanel({
@@ -19,6 +20,7 @@ export default function PropertiesPanel({
   onExecuteUpToNode,
   onDeleteNode,
   partialRunResult,
+  onOpenTraceModal,
 }: PropertiesPanelProps) {
   if (!selectedNode) return null;
 
@@ -321,7 +323,30 @@ export default function PropertiesPanel({
                   />
                 </div>
 
-                {/* 7. Citation Format */}
+                {/* 7. Phase 4: Knowledge Graph Traversal */}
+                <div className="pt-2 border-t border-white/[0.05]">
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                    Knowledge Graph Traversal (OKF)
+                  </label>
+                  <select
+                    value={data.graph?.enabled !== false ? 'enabled' : 'disabled'}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        graph: {
+                          ...(data.graph || {}),
+                          enabled: e.target.value === 'enabled',
+                        },
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white"
+                  >
+                    <option value="enabled">Enabled (2-Hop BFS Entity Multi-Hop)</option>
+                    <option value="disabled">Disabled (Text-Only)</option>
+                  </select>
+                </div>
+
+                {/* 8. Citation Format */}
                 <div className="pt-2 border-t border-white/[0.05]">
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">Citation Format</label>
                   <select
@@ -366,6 +391,16 @@ export default function PropertiesPanel({
               Copy Response
             </div>
           </div>
+        )}
+
+        {/* RAG Telemetry Trace Button */}
+        {type === 'rag_query' && onOpenTraceModal && (
+          <button
+            onClick={() => onOpenTraceModal(id)}
+            className="w-full py-2.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 hover:border-purple-500/60 text-purple-200 text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 shadow-lg cursor-pointer flex items-center justify-center gap-2"
+          >
+            <span>📊</span> Inspect Live RAG Trace
+          </button>
         )}
 
         {/* Run Up to Node Action Button */}

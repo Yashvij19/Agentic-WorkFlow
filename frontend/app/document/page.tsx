@@ -23,6 +23,7 @@ interface TestQueryResult {
   retrievedCount: number;
   fusedCount?: number;
   rerankedCount?: number;
+  hasGraphContext?: boolean;
   latencyMs: number;
   context: {
     contextText: string;
@@ -552,6 +553,38 @@ export default function DocumentKnowledgePage() {
                     {queryResult.answer}
                   </p>
                 </div>
+
+                {/* Knowledge Graph Relations Display (Phase 4) */}
+                {queryResult.context.contextText.includes('=== STRUCTURED KNOWLEDGE GRAPH ===') && (
+                  <div className="bg-purple-950/20 border border-purple-500/30 p-3.5 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px]">🕸️</span>
+                        <span className="text-[9px] font-bold text-purple-300 uppercase tracking-wider">
+                          Discovered Knowledge Graph Relations
+                        </span>
+                      </div>
+                      <span className="text-[8px] font-mono text-purple-400 bg-purple-900/40 px-2 py-0.5 rounded border border-purple-700/40">
+                        2-Hop BFS Multi-Hop
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 pt-1">
+                      {queryResult.context.contextText
+                        .split('\n')
+                        .filter((line) => line.startsWith('•'))
+                        .map((rel, idx) => (
+                          <div
+                            key={idx}
+                            className="text-[10px] font-mono text-slate-200 bg-black/40 border border-white/[0.06] px-2.5 py-1 rounded-lg flex items-center gap-1.5"
+                          >
+                            <span className="text-purple-400">🔗</span>
+                            <span>{rel.slice(2)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Citations & Chunks with Initial vs Reranked Rank & Expansion Badges */}
                 {queryResult.context.citations.length > 0 && (

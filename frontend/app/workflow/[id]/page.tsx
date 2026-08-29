@@ -28,6 +28,7 @@ import CanvasHeader from '../../../components/canvas/CanvasHeader';
 import NodePalette from '../../../components/canvas/NodePalette';
 import PropertiesPanel from '../../../components/canvas/PropertiesPanel';
 import ExecutionHistory from '../../../components/canvas/ExecutionHistory';
+import TraceInspectorModal from '../../../components/canvas/TraceInspectorModal';
 
 export default function WorkflowWorkspace() {
   const { id } = useParams() as { id: string };
@@ -50,6 +51,29 @@ export default function WorkflowWorkspace() {
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [partialRunResult, setPartialRunResult] = useState<string | null>(null);
   const partialRunRef = useRef<{ runId: string | null; targetId: string | null }>({ runId: null, targetId: null });
+
+  // Trace Modal state
+  const [traceModal, setTraceModal] = useState<{
+    isOpen: boolean;
+    executionId?: string | null;
+    nodeId?: string | null;
+    traceId?: string | null;
+  }>({ isOpen: false });
+
+  // Event listener for RAG trace modal triggers
+  useEffect(() => {
+    const handleInspect = (e: any) => {
+      const { nodeId, executionId, traceId } = e.detail || {};
+      setTraceModal({
+        isOpen: true,
+        executionId: executionId || null,
+        nodeId: nodeId || null,
+        traceId: traceId || null,
+      });
+    };
+    window.addEventListener('inspect-rag-trace', handleInspect);
+    return () => window.removeEventListener('inspect-rag-trace', handleInspect);
+  }, []);
 
   // Register Custom Node Types
   const nodeTypes = useMemo(() => ({
@@ -116,7 +140,18 @@ export default function WorkflowWorkspace() {
               return node;
             })
           );
+
+          if (telemetry.status === 'COMPLETED') {
+            setExecutionMessage(`✅ Step '${telemetry.nodeId}' finished!`);
+            setIsExecuting(false);
+          } else if (telemetry.status === 'FAILED') {
+            setExecutionMessage(`❌ Step '${telemetry.nodeId}' failed.`);
+            setIsExecuting(false);
+          } else if (telemetry.status === 'RUNNING') {
+            setExecutionMessage(`⚡ Executing '${telemetry.nodeId}'...`);
+          }
         }
+
 
         // Check if telemetry matches the target partial node execution
         const currentPartial = partialRunRef.current;
@@ -197,11 +232,11 @@ export default function WorkflowWorkspace() {
   }, [setNodes, setEdges]);
 
   // 6. Save Canvas Blueprint
-  const handleSave = async () => {
+  const handleSave = async (silent = false) => {
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch(`${API_URL}/api/workflow`, {
-        method: 'POST',
+      const res = await fetch(`${API_URL}/api/workflow/${id}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
@@ -215,17 +250,27 @@ export default function WorkflowWorkspace() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed saving workflow.');
-      alert('Workflow saved successfully!');
+      if (!silent) {
+        alert('Workflow saved successfully!');
+      }
+      return true;
     } catch (err: any) {
-      alert(`Save error: ${err.message}`);
+      if (!silent) {
+        alert(`Save error: ${err.message}`);
+      }
+      console.error('Auto-save error:', err.message);
+      return false;
     }
   };
 
   // 7. Trigger full execution
   const handleExecute = async () => {
     setIsExecuting(true);
-    setExecutionMessage('Pushing job to queue...');
+    setExecutionMessage('Auto-saving canvas & pushing job to queue...');
     const token = localStorage.getItem('token');
+
+    // 1. Auto-save latest canvas state to database so the worker gets the exact nodes & query
+    await handleSave(true);
 
     // Reset nodes to PENDING status visually
     setNodes((currentNodes) =>
@@ -244,29 +289,28 @@ export default function WorkflowWorkspace() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Trigger failed.');
 
-      setExecutionMessage(`Running execution...`);
+      setExecutionMessage(`Running execution: ${data.executionId?.slice(0, 8)}...`);
     } catch (err: any) {
       setExecutionMessage(`Failed: ${err.message}`);
-    } finally {
-      setTimeout(() => {
-        setIsExecuting(false);
-        setExecutionMessage('');
-      }, 5000);
+      setIsExecuting(false);
     }
   };
 
-    // 7.1 Trigger partial execution up to a selected node
+  // 7.1 Trigger partial execution up to a selected node
   const handleExecuteUpToNode = async (nodeId: string) => {
     setIsExecuting(true);
-    setExecutionMessage(`Queuing partial run up to ${nodeId}...`);
+    setExecutionMessage(`Auto-saving canvas & queuing partial run up to ${nodeId}...`);
     setPartialRunResult(null); // Reset previous outputs
     const token = localStorage.getItem('token');
 
-    // Reset nodes status to PENDING visually
+    // 1. Auto-save latest canvas state to database so worker finds this node and updated query!
+    await handleSave(true);
+
+    // Reset target node status to PENDING visually
     setNodes((currentNodes) =>
       currentNodes.map((node) => ({
         ...node,
-        data: { ...node.data, status: 'PENDING' },
+        data: { ...node.data, status: node.id === nodeId ? 'PENDING' : node.data.status },
       }))
     );
 
@@ -283,18 +327,15 @@ export default function WorkflowWorkspace() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Partial run failed to trigger.');
 
-      setExecutionMessage(`Running partial execution...`);
+      setExecutionMessage(`Running step ${nodeId}...`);
       // Update ref to track WebSocket execution details!
       partialRunRef.current = { runId: data.executionId, targetId: nodeId };
     } catch (err: any) {
       setExecutionMessage(`Failed: ${err.message}`);
-    } finally {
-      setTimeout(() => {
-        setIsExecuting(false);
-        setExecutionMessage('');
-      }, 5000);
+      setIsExecuting(false);
     }
   };
+
 
 
   // 8. Drag and drop HTML5 handlers
@@ -411,6 +452,7 @@ export default function WorkflowWorkspace() {
             onExecuteUpToNode={handleExecuteUpToNode}
             onDeleteNode={handleDeleteNode}
             partialRunResult={partialRunResult}
+            onOpenTraceModal={(nodeId) => setTraceModal({ isOpen: true, nodeId, executionId: null, traceId: null })}
           />
         )}
       </div>
@@ -424,6 +466,16 @@ export default function WorkflowWorkspace() {
           setIsSidebarOpen(false);
         }}
         onClose={() => setIsLogsOpen(false)}
+        onOpenTrace={(executionId, nodeId, traceId) => setTraceModal({ isOpen: true, executionId, nodeId, traceId })}
+      />
+
+      {/* 6. Visual RAG Observability & Telemetry Trace Inspector Modal */}
+      <TraceInspectorModal
+        isOpen={traceModal.isOpen}
+        onClose={() => setTraceModal({ isOpen: false })}
+        executionId={traceModal.executionId}
+        nodeId={traceModal.nodeId}
+        traceId={traceModal.traceId}
       />
     </div>
   );

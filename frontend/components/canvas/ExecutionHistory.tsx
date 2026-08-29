@@ -9,6 +9,7 @@ interface ExecutionHistoryProps {
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
+  onOpenTrace?: (executionId: string, nodeId: string, traceId?: string) => void;
 }
 
 export default function ExecutionHistory({ 
@@ -16,6 +17,7 @@ export default function ExecutionHistory({
   isOpen,
   onOpen,
   onClose,
+  onOpenTrace,
 }: ExecutionHistoryProps) {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,6 +183,15 @@ export default function ExecutionHistory({
                           }`}>
                             {log.status}
                           </span>
+                          {onOpenTrace && (log.outputData?.result?.traceId || log.outputData?.result?.citations || log.nodeId?.includes('rag')) && (
+                            <button
+                              onClick={() => onOpenTrace(selectedRun.id, log.nodeId, log.outputData?.result?.traceId)}
+                              className="px-2 py-0.5 rounded text-[9px] font-bold font-mono bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition cursor-pointer flex items-center gap-1"
+                              title="Inspect RAG Telemetry Trace"
+                            >
+                              📊 Trace
+                            </button>
+                          )}
                         </div>
                         <span className="text-[9px] text-[#687493] font-mono">{new Date(log.createdAt).toLocaleTimeString()}</span>
                       </div>

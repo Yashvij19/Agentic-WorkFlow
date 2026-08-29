@@ -1,4 +1,5 @@
 // src/services/rag/ingestion/IngestionManager.ts
+
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -6,13 +7,15 @@ import { prisma } from '../../../utils/db';
 import { IngestionInput, NormalizedDocument, RAGConfiguration } from '../types';
 import { NativeParser } from './NativeParser';
 import { HierarchicalChunker } from './chunking/HierarchicalChunker';
+import { OKFParser } from './parsers/OKFParser';
 
 export class IngestionManager {
   private nativeParser = new NativeParser();
-   private hierarchicalChunker = new HierarchicalChunker();
+  private hierarchicalChunker = new HierarchicalChunker();
+  private okfParser = new OKFParser();
 
   /**
-   * Orchestrates the parsing, chunking, and database indexing of a document.
+   * Orchestrates the parsing, chunking, embedding, and database indexing of a document.
    */
   async ingestDocument(
     orgId: string,
@@ -33,134 +36,186 @@ export class IngestionManager {
       });
     }
 
-     const documentContent = parsedDoc.normalizedContent || parsedDoc.rawContent || '';
-    // 2. Perform Database Transaction (Clean existing records + Save new)
-    return await prisma.$transaction(async (tx) => {
-      // Find if a document with this name already exists under the same organization
-      const existingDoc = await tx.document.findFirst({
-        where: {
-          name: input.name,
-          organizationId: orgId,
-          knowledgeSourceId: knowledgeSourceId || null,
-        },
+    const rawDocText = parsedDoc.rawContent || '';
+
+    // 2. Phase 4: OKF YAML Frontmatter & Graph Relation Extraction
+    const okfResult = this.okfParser.parse(rawDocText, input.name);
+    const documentContent = okfResult.cleanContent || parsedDoc.normalizedContent || rawDocText;
+
+    // 3. Pre-compute hierarchical chunks and ML embeddings OUTSIDE of the DB transaction
+    const isHierarchical =
+      config.ingestion.chunkStrategy === 'hierarchical' ||
+      config.context?.strategy === 'parent_child';
+
+    let parentChunks: Array<{
+      content: string;
+      children: Array<{ content: string; sequenceIndex: number }>;
+    }> = [];
+    let childEmbeddings: number[][] = [];
+
+    if (isHierarchical) {
+      parentChunks = this.hierarchicalChunker.chunkDocument(documentContent);
+      const allChildTexts: string[] = [];
+      parentChunks.forEach((p) => {
+        p.children.forEach((c) => allChildTexts.push(c.content));
       });
+      childEmbeddings =
+        allChildTexts.length > 0 ? await this.generateEmbeddingsBatch(allChildTexts) : [];
+    }
 
-      if (existingDoc) {
-        // Idempotency: Clean up old chunks and sections to prevent duplicates
-        await tx.chunk.deleteMany({
-          where: { documentId: existingDoc.id },
+    // 4. Perform Database Transaction purely for fast SQL writes
+    return await prisma.$transaction(
+      async (tx) => {
+        // Find if a document with this name already exists under the same organization
+        const existingDoc = await tx.document.findFirst({
+          where: {
+            name: input.name,
+            organizationId: orgId,
+            knowledgeSourceId: knowledgeSourceId || null,
+          },
         });
-        await tx.documentSection.deleteMany({
-          where: { documentId: existingDoc.id },
-        });
-        await tx.document.delete({
-          where: { id: existingDoc.id },
-        });
-      }
 
-      // Save the Document record
-      const document = await tx.document.create({
-        data: {
-          name: input.name,
-          mimeType: input.mimeType,
-          source: input.source,
-          rawContent: parsedDoc.rawContent,
-          //rawContent: The raw, unformatted text extracted directly from the file (e.g., text with messy line breaks, random spaces, or raw HTML tags).
-          // normalizedContent: Clean, structured Markdown (formatted with headers #, lists -, and clean tables |---|).
-          // if the custom parser dont genrate the normalized content we gracefully send the rawcontent as normalized since in oour 
-          // databse both are not null feild it work as safety net
-          normalizedContent:  parsedDoc.normalizedContent || (parsedDoc as any).normalized_content || parsedDoc.rawContent || '',
-          organizationId: orgId,
-          knowledgeSourceId: knowledgeSourceId || null,
-        },
-      });
-
-       // 3. Check if Hierarchical Chunking is enabled
-      const isHierarchical =
-        config.ingestion.chunkStrategy === 'hierarchical' ||
-        config.context?.strategy === 'parent_child';
-      if (isHierarchical) {
-        // Run Hierarchical Chunking
-        const parentChunks = this.hierarchicalChunker.chunkDocument(documentContent);
-        // Collect all child chunk texts to generate embeddings in one single batch
-        const allChildTexts: string[] = [];
-        parentChunks.forEach((p) => {
-          p.children.forEach((c) => allChildTexts.push(c.content));
-        });
-        const childEmbeddings =
-          allChildTexts.length > 0 ? await this.generateEmbeddingsBatch(allChildTexts) : [];
-        let childEmbeddingIndex = 0;
-        for (const parent of parentChunks) {
-          // Create Parent Chunk in DB (Parent holds full context, no vector search needed)
-          const dbParent = await tx.chunk.create({
-            data: {
-              content: parent.content,
-              documentId: document.id,
-              organizationId: orgId,
-            },
+        if (existingDoc) {
+          // Idempotency: Clean up old chunks and sections to prevent duplicates
+          await tx.chunk.deleteMany({
+            where: { documentId: existingDoc.id },
           });
-          // Insert Child Chunks linked to dbParent.id
-          for (const child of parent.children) {
-            const embedding = childEmbeddings[childEmbeddingIndex++];
-            const dbChild = await tx.chunk.create({
+          await tx.documentSection.deleteMany({
+            where: { documentId: existingDoc.id },
+          });
+          await tx.document.delete({
+            where: { id: existingDoc.id },
+          });
+        }
+
+        // Save the Document record
+        const document = await tx.document.create({
+          data: {
+            name: okfResult.title || input.name,
+            mimeType: input.mimeType,
+            source: input.source,
+            rawContent: rawDocText,
+            normalizedContent: documentContent,
+            organizationId: orgId,
+            knowledgeSourceId: knowledgeSourceId || null,
+          },
+        });
+
+        if (isHierarchical) {
+          let childEmbeddingIndex = 0;
+
+          for (const parent of parentChunks) {
+            const dbParent = await tx.chunk.create({
               data: {
-                content: child.content,
-                embeddingJson: embedding ? JSON.stringify(embedding) : null,
-                parentId: dbParent.id, // Relation linkage
+                content: parent.content,
                 documentId: document.id,
                 organizationId: orgId,
               },
             });
-            // Metadata tagging for neighbor window & parent tracking
-            const metadataItems = [
-              { key: 'sequenceIndex', value: JSON.stringify(child.sequenceIndex) },
-              { key: 'parentId', value: JSON.stringify(dbParent.id) },
-              { key: 'filename', value: JSON.stringify(input.name) },
-            ].map((m) => ({
-              chunkId: dbChild.id,
-              key: m.key,
-              value: m.value,
-              organizationId: orgId,
+
+            for (const child of parent.children) {
+              const embedding = childEmbeddings[childEmbeddingIndex++];
+
+              const dbChild = await tx.chunk.create({
+                data: {
+                  content: child.content,
+                  embeddingJson: embedding ? JSON.stringify(embedding) : null,
+                  parentId: dbParent.id,
+                  documentId: document.id,
+                  organizationId: orgId,
+                },
+              });
+
+              // Metadata tagging for neighbor window & parent tracking
+              const metadataItems: Array<{ key: string; value: any }> = [
+                { key: 'sequenceIndex', value: JSON.stringify(child.sequenceIndex) },
+                { key: 'parentId', value: JSON.stringify(dbParent.id) },
+                { key: 'filename', value: JSON.stringify(input.name) },
+              ];
+
+              // Phase 4: Attach OKF Frontmatter attributes to metadata
+              if (okfResult.hasFrontmatter) {
+                metadataItems.push({
+                  key: 'entityType',
+                  value: JSON.stringify(okfResult.entityType),
+                });
+                metadataItems.push({
+                  key: 'entityName',
+                  value: JSON.stringify(okfResult.entityName),
+                });
+              }
+
+              // Phase 4: Index OKF directed graph relations
+              for (const relation of okfResult.relations) {
+                metadataItems.push({
+                  key: 'relation',
+                  value: JSON.stringify(relation),
+                });
+              }
+
+              await tx.chunkMetadata.createMany({
+                data: metadataItems.map((m) => ({
+                  chunkId: dbChild.id,
+                  key: m.key,
+                  value: m.value,
+                  organizationId: orgId,
+                })),
+              });
+            }
+          }
+        } else {
+          // Standard Flat Chunking
+          let seq = 0;
+          for (const chunk of parsedDoc.chunks) {
+            seq++;
+            const dbChunk = await tx.chunk.create({
+              data: {
+                content: chunk.content,
+                embeddingJson: chunk.embedding ? JSON.stringify(chunk.embedding) : null,
+                documentId: document.id,
+                organizationId: orgId,
+              },
+            });
+
+            const metadataItems: Array<{ key: string; value: any }> = Object.entries({
+              ...chunk.metadata,
+              sequenceIndex: seq,
+            }).map(([key, val]) => ({
+              key,
+              value: JSON.stringify(val),
             }));
-            await tx.chunkMetadata.createMany({
-              data: metadataItems,
-            });
+
+            // Phase 4: Index OKF directed graph relations
+            for (const relation of okfResult.relations) {
+              metadataItems.push({
+                key: 'relation',
+                value: JSON.stringify(relation),
+              });
+            }
+
+            if (metadataItems.length > 0) {
+              await tx.chunkMetadata.createMany({
+                data: metadataItems.map((m) => ({
+                  chunkId: dbChunk.id,
+                  key: m.key,
+                  value: m.value,
+                  organizationId: orgId,
+                })),
+              });
+            }
           }
         }
-      } else {
-        // Standard Flat Chunking
-        let seq = 0;
-        for (const chunk of parsedDoc.chunks) {
-          seq++;
-          const dbChunk = await tx.chunk.create({
-            data: {
-              content: chunk.content,
-              embeddingJson: chunk.embedding ? JSON.stringify(chunk.embedding) : null,
-              documentId: document.id,
-              organizationId: orgId,
-            },
-          });
-          const metadataItems = Object.entries({
-            ...chunk.metadata,
-            sequenceIndex: seq,
-          }).map(([key, val]) => ({
-            chunkId: dbChunk.id,
-            key,
-            value: JSON.stringify(val),
-            organizationId: orgId,
-          }));
-          if (metadataItems.length > 0) {
-            await tx.chunkMetadata.createMany({
-              data: metadataItems,
-            });
-          }
-        }
+
+        return document.id;
+      },
+      {
+        timeout: 30000,
+        maxWait: 10000,
       }
-      return document.id;
-    });
+    );
   }
 
-   /**
+  /**
    * Generates vector embeddings for an array of strings in batches using embed_worker.py.
    */
   private async generateEmbeddingsBatch(texts: string[]): Promise<number[][]> {
@@ -193,7 +248,6 @@ export class IngestionManager {
     });
   }
 
-  
   /**
    * Router rules deciding between Native and MarkItDown parsing.
    */
@@ -201,14 +255,13 @@ export class IngestionManager {
     if (config.ingestion.parser === 'markitdown') return true;
     if (config.ingestion.parser === 'native') return false;
 
-    // "auto" mode: PDF, docx, pptx, xlsx require Python MarkItDown
     const ext = path.extname(input.name).toLowerCase();
     const binaryExtensions = ['.pdf', '.docx', '.xlsx', '.xls', '.pptx', '.ppt', '.zip'];
     return binaryExtensions.includes(ext) || !this.nativeParser.canParse(input.mimeType);
   }
 
   /**
-   * Spawns the python rag_worker.py CLI process to run MarkItDown and generate embeddings.
+   * Spawns the python rag_worker.py CLI process to run MarkItDown.
    */
   private async parseWithMarkItDown(
     input: IngestionInput,
@@ -216,17 +269,10 @@ export class IngestionManager {
     chunkOverlap: number
   ): Promise<NormalizedDocument> {
     let tempFilePath = '';
-
-
-    //The !! operator is a double NOT — it forces any value into a strict true or false boolean.
-    // 1st ! Inverts the truthiness → false if truthy, true if falsy
-    // 2nd ! Inverts again → back to boolean true or false
-    
-    const isTempFile = !!input.contentBuffer; 
+    const isTempFile = !!input.contentBuffer;
 
     try {
       if (isTempFile && input.contentBuffer) {
-        // Write the buffer to a temporary file on disk so the Python script can read it
         const tempDir = path.join(__dirname, 'temp');
         await fs.mkdir(tempDir, { recursive: true });
         tempFilePath = path.join(tempDir, `ingest_temp_${Date.now()}_${input.name}`);
@@ -236,7 +282,7 @@ export class IngestionManager {
       }
 
       const scriptPath = path.join(__dirname, 'parsers', 'rag_worker.py');
-      
+
       const parsedData = await new Promise<NormalizedDocument>((resolve, reject) => {
         const child = spawn('python', [
           scriptPath,
@@ -258,7 +304,9 @@ export class IngestionManager {
 
         child.on('close', (code) => {
           if (code !== 0) {
-            return reject(new Error(`Python MarkItDown worker failed (exit code ${code}). Error: ${stderrData}`));
+            return reject(
+              new Error(`Python MarkItDown worker failed (exit code ${code}). Error: ${stderrData}`)
+            );
           }
           try {
             const result = JSON.parse(stdoutData.trim());
@@ -273,9 +321,7 @@ export class IngestionManager {
       });
 
       return parsedData;
-
     } finally {
-      // Clean up the temporary file if it was created
       if (isTempFile && tempFilePath) {
         try {
           await fs.unlink(tempFilePath);

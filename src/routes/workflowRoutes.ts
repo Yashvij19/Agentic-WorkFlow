@@ -84,6 +84,25 @@ export async function workflowRoutes(server: FastifyInstance) {
         }
     });
 
+    // 3.1 Update workflow
+    server.put("/api/workflow/:id", async (request, reply) => {
+        const orgId = request.user.organizationId;
+        const userId = request.user.id;
+        const { id } = request.params as any;
+        const { name, nodes, edges } = request.body as any;
+
+        try {
+            const workflow = await workflowService.updateWorkflow(orgId, userId, id, name, nodes, edges);
+            return reply.code(200).send({
+                message: 'Workflow blueprint saved successfully!',
+                workflow,
+            });
+        } catch (err: any) {
+            return handleRouteError(err, reply);
+        }
+    });
+
+
     // 4. Delete workflow (Blocked if MEMBER has canCreateWorkflow = false)
 
     server.delete("/api/workflow/:id" ,async (request , reply)=>{

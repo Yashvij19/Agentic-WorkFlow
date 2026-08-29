@@ -63,6 +63,39 @@ export default function CredentialsPortal({ onBack, showBackButton = true }: Cre
     }
   };
 
+  const [credentialToDelete, setCredentialToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    if (!credentialToDelete) return;
+
+    setError('');
+    setSuccess('');
+    setIsDeleting(true);
+    const token = localStorage.getItem('token');
+
+    try {
+      const res = await fetch(`${API_URL}/api/credentials/${credentialToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete credential.');
+
+      setSuccess(`Credential '${credentialToDelete.name}' deleted successfully.`);
+      setCredentialToDelete(null);
+      loadCredentials();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+
   return (
     <div className="space-y-6">
       {/* Portal Header */}
@@ -167,12 +200,23 @@ export default function CredentialsPortal({ onBack, showBackButton = true }: Cre
               ) : (
                 <div className="space-y-3">
                   {credentials.map((cred) => (
-                    <div key={cred.id} className="flex justify-between items-center bg-black/35 p-4 rounded-xl border border-white/[0.04]">
+                    <div key={cred.id} className="flex justify-between items-center bg-black/35 p-4 rounded-xl border border-white/[0.04] hover:border-white/10 transition group">
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/40 animate-pulse" />
-                        <span className="text-xs font-semibold font-mono text-slate-300">{cred.name}</span>
+                        <div>
+                          <span className="text-xs font-semibold font-mono text-slate-200 block">{cred.name}</span>
+                          <span className="text-[9px] text-[#687493] font-mono">Added: {new Date(cred.createdAt).toLocaleDateString()}</span>
+                        </div>
                       </div>
-                      <span className="text-[9px] text-[#687493] font-mono">Added: {new Date(cred.createdAt).toLocaleDateString()}</span>
+                      <button
+                        onClick={() => setCredentialToDelete({ id: cred.id, name: cred.name })}
+                        className="p-2 bg-red-500/10 hover:bg-red-500/25 border border-red-500/20 hover:border-red-500/40 text-red-400 hover:text-red-200 rounded-lg transition duration-200 cursor-pointer flex items-center justify-center shadow-sm"
+                        title={`Delete ${cred.name}`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -181,6 +225,61 @@ export default function CredentialsPortal({ onBack, showBackButton = true }: Cre
           </div>
         </div>
       )}
+
+      {/* Glassmorphic Delete Confirmation Modal */}
+      {credentialToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#0A0E1F]/95 border border-white/10 rounded-2xl shadow-2xl max-w-md w-full p-6 text-slate-200 relative overflow-hidden backdrop-blur-xl">
+            {/* Top glass gradient edge */}
+            <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-red-500/40 to-transparent pointer-events-none" />
+
+            <div className="flex items-start gap-4 mb-4">
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 shrink-0">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Delete API Credential?</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Are you sure you want to permanently delete{' '}
+                  <span className="font-mono text-purple-300 font-semibold px-1.5 py-0.5 rounded bg-purple-950/40 border border-purple-800/30">
+                    {credentialToDelete.name}
+                  </span>
+                  ? Any workflows or AI agents depending on this key will revert to fallback mode until a new key is added.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/[0.06] mt-4">
+              <button
+                type="button"
+                onClick={() => setCredentialToDelete(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-xs font-semibold rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition duration-200 shadow-lg shadow-red-500/20 cursor-pointer flex items-center gap-2"
+              >
+                {isDeleting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Yes, Delete Key'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

@@ -93,6 +93,40 @@ export class workflowService{
 
     }
 
+    static async updateWorkflow(orgId: string, userId: string, id: string, name?: string, nodes?: any[], edges?: any[]) {
+        const { role, permissions } = await workflowService.getUserAccess(userId);
+
+        const workflow = await prisma.workflow.findFirst({
+            where: { id, organizationId: orgId }
+        });
+
+        if (!workflow) {
+            throw new Error("Workflow not found.");
+        }
+
+        if (!workflowService.hasWorkflowAccess(workflow, userId, role, permissions, 'view')) {
+            throw new Error("Access Denied: You do not have permission to edit this workflow.");
+        }
+
+        const nodesToSave = nodes !== undefined ? nodes : (workflow.nodesJson as any[]);
+        const edgesToSave = edges !== undefined ? edges : (workflow.dagJson as any[]);
+
+        const dagCheck = validateDag(nodesToSave, edgesToSave);
+        if (!dagCheck.isValid) {
+            throw new Error(dagCheck.error || "Invalid workflow DAG structure.");
+        }
+
+        return await prisma.workflow.update({
+            where: { id },
+            data: {
+                ...(name ? { name: name.trim() } : {}),
+                nodesJson: nodesToSave,
+                dagJson: edgesToSave,
+            }
+        });
+    }
+
+
     static async getWorkflows(
        parms:{
          orgId:string,

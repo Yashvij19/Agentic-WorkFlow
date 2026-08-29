@@ -8,7 +8,8 @@ import { VectorStore } from './storage/VectorStore';
 import { ContextBuilder, BuiltContext } from './retrieval/ContextBuilder';
 import { RerankerFactory } from './reranker/Reranker';
 import { ContextExpander } from './retrieval/ContextExpander';
-
+import { GraphRetriever } from './retrieval/GraphRetriever';
+import {RagTraceMetrics} from '../rag/types'
 import {
   RAGConfiguration,
   RetrievalResult,
@@ -24,8 +25,10 @@ export interface RAGQueryResult {
   retrievedCount: number;
   fusedCount: number;
   rerankedCount: number;
+  hasGraphContext?: boolean;
   latencyMs: number;
   traceId?: string;
+  metrics?:RagTraceMetrics;
 }
 
 export class RAGEngine {
@@ -34,12 +37,14 @@ export class RAGEngine {
   private contextBuilder = new ContextBuilder();
   private vectorStore = new VectorStore();
   private contextExpander = new ContextExpander();
+  private graphRetriever = new GraphRetriever();
 
   /**
    * Main RAG execution flow:
    * 1. Analyze -> 2. Plan -> 3. Retrieve (Vector + Keyword) -> 4. RRF Fusion ->
    * 5. Cross-Encoder Reranker -> 6. Context Expander (Parent-Child / Neighbors) ->
-   * 7. Context Builder -> 8. LLM Generate -> 9. Trace Telemetry
+   * 7. Graph Retriever (OKF Entity Traversal) -> 8. Context Builder ->
+   * 9. LLM Generate -> 10. Trace Telemetry
    */
   async execute(params: {
     orgId: string;
@@ -53,12 +58,15 @@ export class RAGEngine {
     const { orgId, query, config, executionId, nodeId, metadataFilters } = params;
 
     // 1. Query Analysis
+    const t0 = Date.now();
     const analysis = await this.queryAnalyzer.analyze(orgId, query, metadataFilters);
+    const analysisMs = Date.now() - t0;
 
     // 2. Retrieval Planning
     const plan = this.retrievalPlanner.plan(analysis, config);
 
     // 3. Multi-Retriever Execution
+    const t1 = Date.now();
     const shouldRunVector =
       plan.strategies.includes('vector') || plan.strategies.includes('hybrid');
     const shouldRunKeyword =
@@ -85,8 +93,10 @@ export class RAGEngine {
     ]);
 
     const allRetrieved = [...vectorCandidates, ...keywordCandidates];
+    const retrievalMs = Date.now() - t1;
 
     // 4. Reciprocal Rank Fusion (RRF)
+    const t2 = Date.now();
     const fusedCandidates = this.reciprocalRankFusion(
       vectorCandidates,
       keywordCandidates,
@@ -94,8 +104,10 @@ export class RAGEngine {
       plan.vectorWeight,
       plan.keywordWeight
     );
+    const fusionMs = Date.now() - t2;
 
     // 5. Phase 2: Reranking Strategy Execution (Cross-Encoder)
+    const t3 = Date.now();
     const rerankerProvider = config.reranker?.provider || 'none';
     const rerankerTopN = config.reranker?.topN || 5;
     const reranker = RerankerFactory.get(rerankerProvider);
@@ -110,28 +122,87 @@ export class RAGEngine {
       console.warn('Reranker execution failed, falling back to fused results:', rerankErr);
       rerankedCandidates = fusedCandidates.slice(0, rerankerTopN);
     }
+    const rerankMs = Date.now() - t3;
 
     // 6. Phase 3: Context Expansion (Parent-Child & Neighbor Window Stitching)
+    const t4 = Date.now();
     const expandedCandidates = await this.contextExpander.expandContext(
       rerankedCandidates,
       config
     );
+    const expansionMs = Date.now() - t4;
 
-    // 7. Context Building & Deduplication & Token Budgeting
+    // 7. Phase 4: Structured Knowledge Graph Traversal (Multi-Hop Entity Relations)
+    const t5 = Date.now();
+    const graphResult = await this.graphRetriever.retrieveGraphContext(
+      orgId,
+      analysis,
+      expandedCandidates,
+      config
+    );
+    const graphMs = Date.now() - t5;
+
+    // 8. Context Building & Deduplication & Token Budgeting
+    const t6 = Date.now();
     const builtContext = this.contextBuilder.buildContext(expandedCandidates, config);
 
-    // 8. LLM Answer Generation (if enabled)
+    // Combine structured graph block with document context
+    const finalContextText = graphResult.hasGraphContext
+      ? `${graphResult.graphContextText}\n\n${builtContext.contextText}`
+      : builtContext.contextText;
+    const contextBuildMs = Date.now() - t6;
+
+    // 9. LLM Answer Generation (if enabled)
+    const t7 = Date.now();
     let answer = '';
     if (config.generation.enabled) {
-      answer = await this.generateAnswer(orgId, query, builtContext.contextText, config);
+      answer = await this.generateAnswer(orgId, query, finalContextText, config);
     } else {
       // If generation is disabled, output context directly
-      answer = builtContext.contextText;
+      answer = finalContextText;
     }
+    const generationMs = Date.now() - t7;
 
-    const latencyMs = Date.now() - startTime;
+    const totalMs = Date.now() - startTime;
 
-    // 9. Observability & Telemetry Trace Recording
+    // Compute Token & Cost Metrics
+    const estimatedPromptTokens = Math.ceil(
+      ((config.generation.systemPrompt || '').length + finalContextText.length + query.length) / 4
+    );
+    const estimatedCompletionTokens = Math.ceil((answer || '').length / 4);
+    // Cost estimation based on Gemini 2.5 Flash ($0.075 / 1M prompt, $0.30 / 1M output)
+    const estimatedCostUsd = Number(
+      ((estimatedPromptTokens * 0.075 + estimatedCompletionTokens * 0.3) / 1000000).toFixed(6)
+    );
+
+    const timing = {
+      analysisMs,
+      retrievalMs,
+      fusionMs,
+      rerankMs,
+      expansionMs,
+      graphMs,
+      contextBuildMs,
+      generationMs,
+      totalMs,
+    };
+
+    const metrics = {
+      latencyMs: totalMs,
+      timing,
+      chunksRetrieved: allRetrieved.length,
+      chunksFused: fusedCandidates.length,
+      chunksReranked: rerankedCandidates.length,
+      hasGraphContext: graphResult.hasGraphContext,
+      graphEdgesFound: graphResult.traversal.edges.length,
+      chunksUsed: builtContext.totalChunksUsed,
+      tokensUsedEstimate: builtContext.tokensUsedEstimate,
+      estimatedPromptTokens,
+      estimatedCompletionTokens,
+      estimatedCostUsd,
+    };
+
+    // 10. Observability & Telemetry Trace Recording
     let traceId: string | undefined;
     if (executionId && nodeId) {
       try {
@@ -145,16 +216,9 @@ export class RAGEngine {
             retrievedJson: allRetrieved as any,
             fusedJson: fusedCandidates as any,
             rerankedJson: rerankedCandidates as any,
-            contextString: builtContext.contextText,
+            contextString: finalContextText,
             answerString: answer,
-            metricsJson: {
-              latencyMs,
-              chunksRetrieved: allRetrieved.length,
-              chunksFused: fusedCandidates.length,
-              chunksReranked: rerankedCandidates.length,
-              chunksUsed: builtContext.totalChunksUsed,
-              tokensUsedEstimate: builtContext.tokensUsedEstimate,
-            },
+            metricsJson: metrics as any,
           },
         });
         traceId = trace.id;
@@ -165,14 +229,19 @@ export class RAGEngine {
 
     return {
       answer,
-      context: builtContext,
+      context: {
+        ...builtContext,
+        contextText: finalContextText,
+      },
       analysis,
       plan,
       retrievedCount: allRetrieved.length,
       fusedCount: fusedCandidates.length,
       rerankedCount: rerankedCandidates.length,
-      latencyMs,
+      hasGraphContext: graphResult.hasGraphContext,
+      latencyMs: totalMs,
       traceId,
+      metrics,
     };
   }
 
