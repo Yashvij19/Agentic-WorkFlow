@@ -30,6 +30,10 @@ import PropertiesPanel from '../../../components/canvas/PropertiesPanel';
 import ExecutionHistory from '../../../components/canvas/ExecutionHistory';
 import TraceInspectorModal from '../../../components/canvas/TraceInspectorModal';
 
+import CustomCodeNode from '../../../components/nodes/CustomCodeNode';
+import PythonCodeNode from '../../../components/nodes/PythonCodeNode';
+
+
 export default function WorkflowWorkspace() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
@@ -60,6 +64,18 @@ export default function WorkflowWorkspace() {
     traceId?: string | null;
   }>({ isOpen: false });
 
+
+    // Toast Notification State
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 3500); // Auto-dismiss after 3.5 seconds
+  };
+
+
   // Event listener for RAG trace modal triggers
   useEffect(() => {
     const handleInspect = (e: any) => {
@@ -76,12 +92,15 @@ export default function WorkflowWorkspace() {
   }, []);
 
   // Register Custom Node Types
-  const nodeTypes = useMemo(() => ({
+   const nodeTypes = useMemo(() => ({
     input: TriggerNode,
     agent: AgentNode,
     api: ApiNode,
-    rag_query: RagNode
+    rag_query: RagNode,
+    custom_code: CustomCodeNode,
+    python_code: PythonCodeNode,
   }), []);
+
 
   // Compute selectedNode object helper
   const selectedNode = useMemo(() => {
@@ -232,7 +251,9 @@ export default function WorkflowWorkspace() {
   }, [setNodes, setEdges]);
 
   // 6. Save Canvas Blueprint
-  const handleSave = async (silent = false) => {
+  const handleSave = async (silent: boolean | any = false) => {
+      // If React passes a MouseEvent object from onClick, treat it as silent = false
+    const isSilent = typeof silent === 'boolean' ? silent : false;
     const token = localStorage.getItem('token');
     try {
       const res = await fetch(`${API_URL}/api/workflow/${id}`, {
@@ -251,12 +272,12 @@ export default function WorkflowWorkspace() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed saving workflow.');
       if (!silent) {
-        alert('Workflow saved successfully!');
+        showToast(data.message || 'Workflow blueprint saved successfully!', 'success');
       }
       return true;
     } catch (err: any) {
       if (!silent) {
-        alert(`Save error: ${err.message}`);
+        showToast(`Save error: ${err.message}`, 'error');
       }
       console.error('Auto-save error:', err.message);
       return false;
@@ -361,7 +382,7 @@ export default function WorkflowWorkspace() {
         y: event.clientY - reactFlowBounds.top,
       });
 
-      const newNode = {
+            const newNode = {
         id: `node_${Date.now()}`,
         type,
         position,
@@ -373,8 +394,15 @@ export default function WorkflowWorkspace() {
           method: type === 'api' ? 'GET' : undefined,
           url: type === 'api' ? 'https://api.github.com' : undefined,
           output: type === 'input' ? 'Trigger payload data.' : undefined,
+          code: type === 'custom_code'
+            ? `module.exports = async function(inputs, context) {\n  // Access inputs or context['nodeId']\n  console.log("Processing inputs:", inputs);\n  return inputs;\n};`
+            : type === 'python_code'
+            ? `def main(inputs, context):\n    # Access inputs or context['nodeId']\n    print("Processing inputs:", inputs)\n    return inputs`
+            : undefined,
+          timeoutMs: (type === 'custom_code' || type === 'python_code') ? 10000 : undefined,
         },
       };
+
 
       setNodes((nds) => nds.concat(newNode));
     },
@@ -388,7 +416,7 @@ export default function WorkflowWorkspace() {
         title={workflowName}
         isExecuting={isExecuting}
         executionMessage={executionMessage}
-        onSave={handleSave}
+        onSave={() => handleSave(false)} // Pass explicit false!
         onExecute={handleExecute}
       />
 
@@ -477,6 +505,30 @@ export default function WorkflowWorkspace() {
         nodeId={traceModal.nodeId}
         traceId={traceModal.traceId}
       />
+                {/* 7. Modern Floating Glassmorphic Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-[9999] pointer-events-auto">
+          <div
+            className={`flex items-center gap-3 px-4 py-3 rounded-2xl backdrop-blur-xl border shadow-2xl transition-all duration-300 ${
+              toast.type === 'success'
+                ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200 shadow-emerald-950/50'
+                : 'bg-red-950/90 border-red-500/40 text-red-200 shadow-red-950/50'
+            }`}
+          >
+            <span className="text-base">{toast.type === 'success' ? '✨' : '⚠️'}</span>
+            <div className="text-xs font-semibold tracking-wide">{toast.message}</div>
+            <button
+              onClick={() => setToast(null)}
+              className="ml-2 text-slate-400 hover:text-white transition p-0.5 rounded cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      
+
     </div>
   );
 }

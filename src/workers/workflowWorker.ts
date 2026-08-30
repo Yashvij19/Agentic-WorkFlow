@@ -3,11 +3,14 @@ import { redisConnection, redisPublisher } from "../utils/redis";
 import { WORKFLOW_QUEUE_NAME } from "../queues/workflowQueue";
 import {prisma} from '../utils/db'
 import { injectVariables } from "../utils/interpolation";
-import { executeAiAgent } from "../utils/aiAgent";
-import { error, timeStamp } from "node:console";
+
+
 import 'dotenv/config';
-import { RAGEngine } from '../services/rag/RAGEngine';
-import { RAGConfiguration } from '../services/rag/types';
+
+
+
+import { nodeRegistry, ExecutionContext } from '../nodes';
+
 // A mock array of steps for our workflow
 function topologicalSort(nodes:any[] , edges:any[]):any[]{
   const inDegree=new Map<string , number>();
@@ -86,7 +89,7 @@ function resolveAncestors(targetId:string , edges:any[]):Set<string>{
   dfs(targetId);
   return ancestors;
 }
-const ragEngine = new RAGEngine();
+
 
 
 
@@ -96,6 +99,8 @@ const processWorkflow = async (job: Job) => {
 
   console.log(`\n👨‍🍳 [Worker] Picked up execution: ${executionId}`);
   console.log(`📂 [Worker] Workflow ID: ${workflowId} | Org ID: ${organizationId}`);
+
+  
   const orgId=organizationId;
    if (targetNodeId){
       console.log(`🎯 [Worker] Target execution node: ${targetNodeId}`);
@@ -175,144 +180,69 @@ const processWorkflow = async (job: Job) => {
    
     let stepResult: any = null;
 try{
-    if (node.type === 'agent') {
-      const promptText=node.data.prompt||'';
-      // Inject results from parent steps e.g. {{node_1.output}}
-      const hydratedPrompt = injectVariables(promptText ,workflowContext);
+  // 1. Fetch organization credentials once
+     const orgCredentials = await prisma.credential.findMany({
+        where: { organizationId: orgId },
+      });
+      const credentialsMap: Record<string, string> = {};
+      orgCredentials.forEach(c => {
+        credentialsMap[c.name] = c.encryptedData;
+      });
 
-      console.log(`✨ [Agent] Hydrated Prompt: "${hydratedPrompt}"`);
+       // 2. Resolve direct inputs from parent nodes
+         const parentEdges = edges.filter((e: any) => e.target === node.id);
+      let directInputs: any = {};
+      if (parentEdges.length === 1) {
+        const parentId = parentEdges[0].source;
+        directInputs = workflowContext[parentId]?.output ?? workflowContext[parentId] ?? {};
+      } else if (parentEdges.length > 1) {
+        parentEdges.forEach((e: any) => {
+          directInputs[e.source] = workflowContext[e.source]?.output ?? workflowContext[e.source];
+        });
+      }
 
-      // Check organization credentials for Gemini Key
+      // 3. Build the Execution Context (The Toolbox)
+      const ctx: ExecutionContext = {
+        executionId,
+        workflowId,
+        orgId,
+        nodeId: node.id,
+        workflowContext,
+        credentials: credentialsMap,
+        emitTelemetry: (status, message, data) => {
+          broadcastTelemetry(orgId, executionId, node.id, status, message, data);
+        },
+      };
+
+       // 🔌 4. Universal Node Execution via Strategy Pattern!
+      const executor = nodeRegistry.get(node.type);
+      if (executor) {
+        const result = await executor.execute(node.data, directInputs, ctx);
+        if (!result.success && result.error) {
+          throw new Error(result.error);
+        }
+        stepResult = result.output;
+      } else {
+        // Fallback for simple/unregistered pass-through nodes
+        console.warn(`⚠️ [Worker] No executor found for type '${node.type}'. Using raw node data.`);
+        stepResult = node.data?.output || null;
+      }
   
 
-      const credentials=await prisma.credential.findFirst({
-        where:{
-          organizationId:orgId, name:"GEMINI_API_KEY"
+       // Save step result into execution context
+      workflowContext[node.id] = { output: stepResult };
+      // Write execution log
+      await prisma.executionLog.create({
+        data: {
+          executionId,
+          nodeId: node.id,
+          status: 'COMPLETED',
+          outputData: { result: workflowContext[node.id] }
         }
       });
+      broadcastTelemetry(orgId, executionId, node.id, 'COMPLETED', `Step ${node.id} finished successfully.`);
 
-      let encryptedKey:string|null=null;
-
-      if(credentials){
-        encryptedKey=credentials.encryptedData;
-      }
-
-      if (encryptedKey) {
-        console.log(`📡 [Agent] Calling Gemini API...`);
-        const aiResponse = await executeAiAgent({
-          prompt: hydratedPrompt,
-          encryptedApiKey: encryptedKey
-        });
-        stepResult = aiResponse.output;
-        console.log(`🤖 [Agent Output]: "${stepResult}"`);
-        console.log(`📊 [Metrics] Duration: ${aiResponse.durationMs}ms | Tokens: ${aiResponse.usage.totalTokens}`);
-      }
-      else {
-
-        console.warn(`⚠️ [Agent] No API Key provided. Falling back to mock execution.`);
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        stepResult = `[Mock AI Response for: ${hydratedPrompt}]`;
-      }
-
-    }else if (node.type==='api'){
-      const rawUrl=node.data.url;
-      const hydratedUrl=injectVariables(rawUrl , workflowContext);
-      const method=node.data.method;
-
-      console.log(`📡 [API Node] Sending ${method} request to URL: ${hydratedUrl}`);
-      const response=await fetch(hydratedUrl ,{method});
-      let responseData:any;
-      try{
-        responseData=await response.json();
-      }catch{
-        responseData=await response.text();
-      }
-      if(!response.ok){
-        throw new Error(`API Node query failed (HTTP ${response.status}): ${JSON.stringify(responseData)}`);
-      }
-        console.log(`✅ [API Node] Response Status: ${response.status}`);
-        stepResult = responseData;
-    } else if (node.type === 'rag_query') {
-       const rawQuery = node.data?.query || '';
-      // 1. Inject variables from previous steps (e.g. {{trigger.output}})
-       const hydratedQuery = injectVariables(rawQuery, workflowContext);
-         console.log(`🔍 [RAG Node] Hydrated Query: "${hydratedQuery}"`);
-         // 2. Resolve RAG Configuration (defaults + node.data overrides)
-         const ragConfig: RAGConfiguration = {
-        mode: node.data?.mode || 'simple',
-        useCaseProfile: node.data?.useCaseProfile || 'GENERAL_QA',
-        ingestion: node.data?.ingestion || {
-          parser: 'auto',
-          chunkSize: 800,
-          chunkOverlap: 100,
-          chunkStrategy: 'recursive',
-        },
-        retrieval: node.data?.retrieval || {
-          mode: 'hybrid',
-          topK: 10,
-          vectorWeight: 0.7,
-          keywordWeight: 0.3,
-          minScore: 0.3,
-        },
-        reranker: node.data?.reranker || {
-          provider: 'none',
-          topN: 5,
-        },
-        context: node.data?.context || {
-          strategy: 'top_chunks',
-          maxTokens: 4000,
-          citationMode: 'inline',
-        },
-        generation: node.data?.generation || {
-          enabled: true,
-          provider: 'gemini',
-          model: 'gemini-2.5-flash',
-          temperature: 0.2,
-          systemPrompt: '',
-        },
-      };
-       // 3. Execute the RAG Pipeline
-      const ragResult = await ragEngine.execute({
-        orgId,
-        query: hydratedQuery,
-        config: ragConfig,
-        executionId,
-        nodeId: node.id,
-        metadataFilters: node.data?.metadataFilters,
-      });
-
-       console.log(`📚 [RAG Node] Retrieved ${ragResult.retrievedCount} chunks in ${ragResult.latencyMs}ms`);
-      console.log(`🤖 [RAG Output]: "${ragResult.answer.slice(0, 100)}..."`);
-
-      // 4. Return structured outcome so downstream nodes can use {{rag_1.answer}} or {{rag_1.context}}
-      stepResult = {
-        output: ragResult.answer,
-        answer: ragResult.answer,
-        context: ragResult.context.contextText,
-        citations: ragResult.context.citations,
-        retrievedCount: ragResult.retrievedCount,
-        latencyMs: ragResult.latencyMs,
-        traceId: ragResult.traceId,
-        metrics: ragResult.metrics,
-      };
-    }else{
-      stepResult=node.data?.output ;
-    }
-
-    // Save step result into execution context
-    workflowContext[node.id] = { output: stepResult };
-
-     // Write execution log
-    await prisma.executionLog.create({
-      data: {
-        executionId,
-        nodeId: node.id,
-        status: 'COMPLETED',
-        outputData: { result: workflowContext[node.id] }
-      }
-    });
-
-    broadcastTelemetry(orgId,executionId, node.id, 'COMPLETED', `Step ${node.id} finished successfully.`)
+      
     
 } catch (nodeError: any) {
   console.error(`☠️ [Worker] Step ${node.id} failed:`, nodeError.message);
@@ -387,19 +317,18 @@ worker.on("failed", async (job, err) => {
 });
 
 // Publishes status details, including the organizationId for multi-tenant websocket security
-  function broadcastTelemetry(orgId: string, executionId: string, nodeId: string, status: string, message?: string) {
+function broadcastTelemetry(orgId: string, executionId: string, nodeId: string, status: string, message?: string, data?: any) {
   const payload = JSON.stringify({
     organizationId: orgId,
     executionId,
     nodeId,
     status,
     message,
+    data,
     timeStamp: new Date().toISOString()
   });
-
-    redisPublisher.publish('telemetry', payload);
-  }
-
+  redisPublisher.publish('telemetry', payload);
+}
 
 
 

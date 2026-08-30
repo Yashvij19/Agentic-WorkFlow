@@ -178,6 +178,38 @@ export default function NodePalette({
                 <p className="text-[9px] text-[#687493] font-light">Query REST endpoints</p>
               </div>
             </div>
+                        {/* Custom JavaScript Code Node Draggability */}
+            <div
+              draggable
+              onDragStart={(e) => onDragStart(e, 'custom_code')}
+              className="flex items-center gap-3 p-3 bg-black/40 border border-amber-500/10 hover:border-amber-500/35 rounded-xl cursor-grab active:cursor-grabbing transition duration-200"
+              title="Drag Custom JavaScript Node"
+            >
+              <div className="w-5 h-5 rounded bg-amber-500/20 text-amber-400 flex items-center justify-center font-mono font-bold text-[10px] shrink-0 border border-amber-500/30">
+                JS
+              </div>
+              <div className="text-left leading-tight">
+                <h4 className="text-[11px] font-bold text-slate-200">Custom Code (JS)</h4>
+                <p className="text-[9px] text-[#687493] font-light">Sandboxed JavaScript V8</p>
+              </div>
+            </div>
+
+            {/* Custom Python Code Node Draggability */}
+            <div
+              draggable
+              onDragStart={(e) => onDragStart(e, 'python_code')}
+              className="flex items-center gap-3 p-3 bg-black/40 border border-cyan-500/10 hover:border-cyan-500/35 rounded-xl cursor-grab active:cursor-grabbing transition duration-200"
+              title="Drag Custom Python Node"
+            >
+              <div className="w-5 h-5 rounded bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-mono font-bold text-[10px] shrink-0 border border-cyan-500/30">
+                Py
+              </div>
+              <div className="text-left leading-tight">
+                <h4 className="text-[11px] font-bold text-slate-200">Python Script</h4>
+                <p className="text-[9px] text-[#687493] font-light">Custom Python 3 runner</p>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>

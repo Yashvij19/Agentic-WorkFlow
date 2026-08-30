@@ -94,6 +94,7 @@ export async function workflowRoutes(server: FastifyInstance) {
         try {
             const workflow = await workflowService.updateWorkflow(orgId, userId, id, name, nodes, edges);
             return reply.code(200).send({
+                success: true, // ✅ Standard success flag
                 message: 'Workflow blueprint saved successfully!',
                 workflow,
             });

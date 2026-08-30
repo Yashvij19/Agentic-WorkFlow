@@ -368,6 +368,173 @@ export default function PropertiesPanel({
             )}
           </div>
         )}
+
+        {/* Custom JavaScript Code Node Editor */}
+        {type === 'custom_code' && (
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-[9px] font-bold text-amber-400 uppercase tracking-widest pl-1">
+                  JavaScript Code
+                </label>
+                <span className="text-[9px] text-[#687493] font-mono">Node.js V8</span>
+              </div>
+              
+              <textarea
+                rows={12}
+                value={data.code || ''}
+                onChange={(e) => onUpdateNodeData(id, { ...data, code: e.target.value })}
+                className="w-full p-3 bg-black/60 border border-amber-500/20 focus:border-amber-500/50 rounded-xl text-xs font-mono text-amber-200/90 leading-relaxed outline-none transition resize-y"
+                placeholder="module.exports = async function(inputs, context) { ... };"
+                spellCheck={false}
+              />
+            </div>
+
+            {/* Quick Starter Templates */}
+            <div>
+              <span className="block text-[9px] font-bold text-[#687493] uppercase tracking-widest mb-1.5 pl-1">
+                Quick Snippets
+              </span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNodeData(id, {
+                      ...data,
+                      code: `module.exports = async function(inputs, context) {\n  // Transform and clean data\n  return {\n    cleanText: inputs.text?.trim(),\n    timestamp: new Date().toISOString()\n  };\n};`,
+                    })
+                  }
+                  className="py-1.5 px-2 bg-black/30 hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/30 rounded-lg text-[10px] text-slate-300 hover:text-amber-200 transition cursor-pointer text-left"
+                >
+                  ⚡ Transform Data
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNodeData(id, {
+                      ...data,
+                      code: `module.exports = async function(inputs, context) {\n  // Query data from previous nodes\n  const prev = context.node_1?.output;\n  console.log("Memory context:", prev);\n  return { merged: prev };\n};`,
+                    })
+                  }
+                  className="py-1.5 px-2 bg-black/30 hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/30 rounded-lg text-[10px] text-slate-300 hover:text-amber-200 transition cursor-pointer text-left"
+                >
+                  🔍 Query Memory
+                </button>
+              </div>
+            </div>
+
+            {/* Timeout Slider */}
+            <div>
+              <div className="flex justify-between items-center mb-1.5 pl-1">
+                <label className="text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest">
+                  Timeout Limit: {(data.timeoutMs || 10000) / 1000}s
+                </label>
+              </div>
+              <input
+                type="range"
+                min="1000"
+                max="30000"
+                step="1000"
+                value={data.timeoutMs || 10000}
+                onChange={(e) => onUpdateNodeData(id, { ...data, timeoutMs: Number(e.target.value) })}
+                className="w-full accent-amber-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            {/* Available Scope Helpers */}
+            <div className="p-3 bg-black/30 rounded-xl border border-white/5 text-[10px] text-[#98A4C2] space-y-1">
+              <span className="font-bold text-slate-200 block text-[9px] uppercase tracking-wider mb-1">
+                Available Scope:
+              </span>
+              <p><code className="text-amber-300 font-mono">inputs</code>: Direct payload from parent node</p>
+              <p><code className="text-amber-300 font-mono">context</code>: Full workflow memory dictionary</p>
+              <p><code className="text-amber-300 font-mono">$node(id)</code>: Shorthand output lookup</p>
+            </div>
+          </div>
+        )}
+
+        {/* Custom Python Script Node Editor */}
+        {type === 'python_code' && (
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-[9px] font-bold text-cyan-400 uppercase tracking-widest pl-1">
+                  Python Script (3.x)
+                </label>
+                <span className="text-[9px] text-[#687493] font-mono">Python Runtime</span>
+              </div>
+              
+              <textarea
+                rows={12}
+                value={data.code || ''}
+                onChange={(e) => onUpdateNodeData(id, { ...data, code: e.target.value })}
+                className="w-full p-3 bg-black/60 border border-cyan-500/20 focus:border-cyan-500/50 rounded-xl text-xs font-mono text-cyan-200/90 leading-relaxed outline-none transition resize-y"
+                placeholder="def main(inputs, context):\n    return inputs"
+                spellCheck={false}
+              />
+            </div>
+
+            {/* Quick Starter Templates */}
+            <div>
+              <span className="block text-[9px] font-bold text-[#687493] uppercase tracking-widest mb-1.5 pl-1">
+                Quick Snippets
+              </span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNodeData(id, {
+                      ...data,
+                      code: `def main(inputs, context):\n    # Process text or list\n    print("Running Python processor...")\n    return {\n        "processed": True,\n        "keys": list(inputs.keys())\n    }`,
+                    })
+                  }
+                  className="py-1.5 px-2 bg-black/30 hover:bg-cyan-500/10 border border-white/5 hover:border-cyan-500/30 rounded-lg text-[10px] text-slate-300 hover:text-cyan-200 transition cursor-pointer text-left"
+                >
+                  ⚡ Text/Data Filter
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNodeData(id, {
+                      ...data,
+                      code: `def main(inputs, context):\n    # Extract all ancestor answers\n    answers = [v.get('output') for k, v in context.items() if 'output' in v]\n    return {"total_steps": len(answers), "answers": answers}`,
+                    })
+                  }
+                  className="py-1.5 px-2 bg-black/30 hover:bg-cyan-500/10 border border-white/5 hover:border-cyan-500/30 rounded-lg text-[10px] text-slate-300 hover:text-cyan-200 transition cursor-pointer text-left"
+                >
+                  🔍 Query Memory
+                </button>
+              </div>
+            </div>
+
+            {/* Timeout Slider */}
+            <div>
+              <div className="flex justify-between items-center mb-1.5 pl-1">
+                <label className="text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest">
+                  Timeout Limit: {(data.timeoutMs || 10000) / 1000}s
+                </label>
+              </div>
+              <input
+                type="range"
+                min="1000"
+                max="30000"
+                step="1000"
+                value={data.timeoutMs || 10000}
+                onChange={(e) => onUpdateNodeData(id, { ...data, timeoutMs: Number(e.target.value) })}
+                className="w-full accent-cyan-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            {/* Available Scope Helpers */}
+            <div className="p-3 bg-black/30 rounded-xl border border-white/5 text-[10px] text-[#98A4C2] space-y-1">
+              <span className="font-bold text-slate-200 block text-[9px] uppercase tracking-wider mb-1">
+                Python Function Signature:
+              </span>
+              <p><code className="text-cyan-300 font-mono">def main(inputs, context):</code></p>
+              <p className="text-[9px] text-[#687493]">All <code className="text-slate-300 font-mono">print()</code> calls are captured in live telemetry logs!</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3.5 border-t border-white/[0.05] pt-4">
