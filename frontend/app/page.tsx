@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import ScrollCanvasBackground from '@/components/ScrollCanvasBackground';
+import InteractiveArchitectureMap from '@/components/InteractiveArchitectureMap';
 
 export default function LandingPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -38,7 +39,7 @@ export default function LandingPage() {
           
           <nav className="hidden md:flex items-center gap-8 text-xs font-semibold tracking-wider uppercase text-slate-300">
             <a href="#swarm" className="hover:text-white transition-colors duration-200">Swarm Grid</a>
-            <a href="#features" className="hover:text-white transition-colors duration-200">Architecture</a>
+            <a href="#architecture" className="hover:text-white transition-colors duration-200">Architecture</a>
             <a href="#pipeline" className="hover:text-white transition-colors duration-200">Core Engine</a>
           </nav>
 
@@ -66,21 +67,20 @@ export default function LandingPage() {
             {/* Fresnel edge light simulation */}
             <div className="absolute top-0 left-10 right-10 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none" />
             
-            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-[10px] font-bold tracking-wider uppercase text-slate-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              SYSTEM PROTOCOL v1.0.4 ACTIVE
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-[10px] font-bold tracking-wider uppercase text-cyan-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              ENTERPRISE MULTI-TENANT ARCHITECTURE ACTIVE
             </span>
             
             <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-none">
               Orchestrate Autonomous <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400">
+              <span className="text-transparent bg-clip-text bg-gradient-to-b from-white via-cyan-200 to-slate-400">
                 AI Agent Swarms
               </span>
             </h1>
             
             <p className="text-sm md:text-base text-slate-400 max-w-xl mx-auto leading-relaxed font-light">
-              Build complex multi-agent system workflows using a visual glass interface. 
-              Chain triggers, schedule state loops, and decrypt secure keys to run cognitive threads.
+              Build complex multi-agent system workflows with hybrid vector RAG, Cross-Encoder reranking, Microsoft MarkItDown ingestion, and zero-latency WebSocket telemetry.
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full sm:w-auto mt-4">
@@ -90,12 +90,12 @@ export default function LandingPage() {
               >
                 {isLoggedIn ? "Open Workspace" : "Launch Grid Editor"}
               </Link>
-              <Link 
-                href={isLoggedIn ? "/workflow" : "/login"} 
-                className="w-full sm:w-auto px-8 py-4 glass-button text-xs font-bold tracking-wider uppercase rounded-xl"
+              <a 
+                href="#architecture" 
+                className="w-full sm:w-auto px-8 py-4 glass-button text-xs font-bold tracking-wider uppercase rounded-xl text-center"
               >
-                Watch Simulator
-              </Link>
+                Explore Architecture
+              </a>
             </div>
           </div>
           
@@ -125,21 +125,21 @@ export default function LandingPage() {
               <div className="glass-panel p-8 rounded-2xl flex flex-col gap-6 relative group hover:border-white/20 transition-all duration-300 hover:-translate-y-1">
                 <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold tracking-wider uppercase text-slate-400">Agent: Dev-01</span>
+                  <span className="text-xs font-bold tracking-wider uppercase text-slate-400">Agent: RAG-01</span>
                   <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
                     <span className="h-1 w-1 rounded-full bg-emerald-400 animate-ping" />
                     RUNNING
                   </span>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-2">Code Synthesis Swarm</h3>
+                  <h3 className="text-lg font-bold text-white mb-2">Hybrid RAG & Cross-Encoder</h3>
                   <p className="text-xs text-slate-400 leading-relaxed font-light">
-                    Assembles database schemas and writes Next.js client routes by scanning project structures.
+                    Retrieves dense vectors via BAAI/bge-m3, executes Reciprocal Rank Fusion, and reranks chunks with AI cross-encoders.
                   </p>
                 </div>
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500">
-                  <span>Cycle rate: 980ms</span>
-                  <span>Tokens: 14.2k</span>
+                  <span>Cycle rate: 420ms</span>
+                  <span>Precision: 99.1%</span>
                 </div>
               </div>
 
@@ -154,14 +154,14 @@ export default function LandingPage() {
                   </span>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-2">Cognitive Orchestrator</h3>
+                  <h3 className="text-lg font-bold text-white mb-2">Cognitive DAG Orchestrator</h3>
                   <p className="text-xs text-slate-400 leading-relaxed font-light">
-                    Chains LLM models, parses outputs, and dynamically routes failure pathways back to nodes.
+                    Applies topological sorting, detects execution cycles, and executes sub-graphs with resume-from-failure replaying.
                   </p>
                 </div>
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500">
                   <span>Confidence: 99.4%</span>
-                  <span>Temp: 0.2</span>
+                  <span>Concurrency: 10</span>
                 </div>
               </div>
 
@@ -176,54 +176,23 @@ export default function LandingPage() {
                   </span>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-2">Security Sentinel</h3>
+                  <h3 className="text-lg font-bold text-white mb-2">Security & Telemetry Sentinel</h3>
                   <p className="text-xs text-slate-400 leading-relaxed font-light">
-                    Manages tenant API keys securely, decrypts keys in real-time execution environments, and runs checks.
+                    Manages tenant AES-256 encrypted credentials and streams real-time Redis Pub/Sub telemetry events over WebSockets.
                   </p>
                 </div>
                 <div className="pt-4 border-t border-white/5 flex items-center justify-between text-[10px] font-mono text-slate-500">
                   <span>TLS: AES-256</span>
-                  <span>Latency: 4ms</span>
+                  <span>WS Latency: 3ms</span>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* 4. Layered Depth Architecture Features */}
-        <section id="features" className="min-h-screen w-full flex flex-col justify-center items-center px-4 py-24 relative">
-          <div className="max-w-5xl w-full">
-            <div className="text-center mb-16">
-              <h2 className="text-3xl md:text-5xl font-bold tracking-tight text-white mb-4">
-                Layered Architecture
-              </h2>
-              <p className="text-sm text-slate-400 max-w-xl mx-auto leading-relaxed">
-                Our engine combines multiple levels of visual depth to separate telemetry data from operational states.
-              </p>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-8">
-              {/* Feature Card 1 - glass-panel */}
-              <div className="glass-panel p-10 rounded-2xl relative hover:border-white/15 transition-all duration-300">
-                <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                <span className="text-4xl block mb-6 text-slate-300 font-light">01 /</span>
-                <h3 className="text-2xl font-bold text-white mb-4">Real-Time Telemetry</h3>
-                <p className="text-slate-400 leading-relaxed text-sm font-light">
-                  Direct telemetry relays connect via WebSocket pipelines to trace model outputs, execution durations, and retry counts, keeping you in complete alignment with your swarms.
-                </p>
-              </div>
-
-              {/* Feature Card 2 - glass-panel-deep (different depth/blur level) */}
-              <div className="glass-panel-deep p-10 rounded-2xl relative border-white/10 hover:border-white/20 transition-all duration-300 shadow-2xl">
-                <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                <span className="text-4xl block mb-6 text-slate-400 font-light">02 /</span>
-                <h3 className="text-2xl font-bold text-white mb-4">Decrypted Pipeline State</h3>
-                <p className="text-slate-500 leading-relaxed text-sm font-light">
-                  Execute complex data workflows without exposing credentials. Nodes securely pull and release tokens only during short-lived execution lifetimes.
-                </p>
-              </div>
-            </div>
-          </div>
+        {/* 4. Interactive 7-Layer Architecture Blueprint */}
+        <section id="architecture" className="min-h-screen w-full flex flex-col justify-center items-center px-4 py-24 relative scroll-mt-20">
+          <InteractiveArchitectureMap />
         </section>
 
         {/* 5. Spatial Workflow Pipeline simulator */}
