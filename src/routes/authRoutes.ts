@@ -83,5 +83,44 @@ export async function authRoutes(server:FastifyInstance){
         }
     });
 
-    
+    server.get('/api/auth/me', async (request, reply) => {
+        try {
+            await server.authenticate(request, reply);
+            if (!request.user) return;
+            const userId = request.user.id;
+            const profile = await AuthService.getProfile(userId);
+            return reply.code(200).send(profile);
+        } catch (error: any) {
+            return reply.code(400).send({ error: error.message });
+        }
+    });
+
+    server.post('/api/auth/reset-password', async (request, reply) => {
+        try {
+            await server.authenticate(request, reply);
+            if (!request.user) return;
+            const userId = request.user.id;
+            const { oldPassword, newPassword } = (request.body as any) || {};
+            if (!oldPassword || !newPassword) {
+                return reply.code(400).send({ error: 'Both current password and new password are required.' });
+            }
+            const result = await AuthService.resetPassword(userId, oldPassword, newPassword);
+            return reply.code(200).send(result);
+        } catch (error: any) {
+            return reply.code(400).send({ error: error.message });
+        }
+    });
+
+    server.post('/api/auth/forgot-password', async (request, reply) => {
+        try {
+            const { email, newPassword } = (request.body as any) || {};
+            if (!email || !newPassword) {
+                return reply.code(400).send({ error: 'Email and new password are required.' });
+            }
+            const result = await AuthService.forgotPassword(email, newPassword);
+            return reply.code(200).send(result);
+        } catch (error: any) {
+            return reply.code(400).send({ error: error.message });
+        }
+    });
 }

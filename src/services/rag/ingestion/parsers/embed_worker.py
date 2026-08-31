@@ -1,5 +1,3 @@
-from torch import embedding
-from torch.hub import list
 import sys
 import json
 from sentence_transformers import SentenceTransformer

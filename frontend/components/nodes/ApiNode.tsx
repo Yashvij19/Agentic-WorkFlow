@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
+import { X } from 'lucide-react';
 
 export default function ApiNode({ id, data }: NodeProps) {
   const { setNodes, setEdges } = useReactFlow();
@@ -17,7 +18,7 @@ export default function ApiNode({ id, data }: NodeProps) {
   let badge = <span className="text-[9px] font-mono font-bold uppercase tracking-wider bg-amber-950/40 text-amber-300 border border-amber-800/30 px-2 py-0.5 rounded-lg">API Request</span>;
   
   if (data.status === 'RUNNING') {
-    borderClass = 'border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)] animate-pulse';
+    borderClass = 'border-blue-500/50 running-ring-blue';
   } else if (data.status === 'COMPLETED') {
     borderClass = 'border-green-500/50';
   } else if (data.status === 'FAILED') {
@@ -36,10 +37,10 @@ export default function ApiNode({ id, data }: NodeProps) {
           {badge}
           <button 
             onClick={handleDelete}
-            className="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs ml-1.5 p-0.5 rounded hover:bg-white/[0.04] leading-none"
+            className="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs ml-1.5 p-1 rounded-md hover:bg-white/[0.06] flex items-center justify-center"
             title="Delete Node"
           >
-            ✕
+            <X className="w-3 h-3" />
           </button>
         </div>
       </div>

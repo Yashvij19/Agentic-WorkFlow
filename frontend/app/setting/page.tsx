@@ -10,6 +10,7 @@ import CredentialsPortal from '@/components/settings/CredentialsPortal';
 import TokenGenerationPortal from '@/components/settings/TokenGenerationPortal';
 import RequestApprovalPortal from '@/components/settings/RequestApprovalPortal';
 import UserListPortal from '@/components/settings/UserListPortal';
+import { PageTransitionLoader } from '@/components/PageTransitionLoader';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -48,11 +49,8 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#030617] text-[#98A4C2] flex items-center justify-center font-semibold text-xs tracking-wider uppercase">
-        <div className="flex items-center gap-3">
-          <div className="w-4 h-4 border border-white/20 border-t-white rounded-full animate-spin" />
-          Loading Settings Profile...
-        </div>
+      <div className="min-h-screen bg-[#030617] flex items-center justify-center">
+        <PageTransitionLoader text="SETTINGS" />
       </div>
     );
   }

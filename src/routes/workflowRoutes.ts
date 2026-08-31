@@ -84,6 +84,97 @@ export async function workflowRoutes(server: FastifyInstance) {
         }
     });
 
+    // 3.1 Update workflow
+    server.put("/api/workflow/:id", async (request, reply) => {
+        const orgId = request.user.organizationId;
+        const userId = request.user.id;
+        const { id } = request.params as any;
+        const { name, nodes, edges } = request.body as any;
+
+        try {
+            const workflow = await workflowService.updateWorkflow(orgId, userId, id, name, nodes, edges);
+            return reply.code(200).send({
+                success: true, // ✅ Standard success flag
+                message: 'Workflow blueprint saved successfully!',
+                workflow,
+            });
+        } catch (err: any) {
+            return handleRouteError(err, reply);
+        }
+    });
+
+    // 3.2 Rename workflow
+    const handleRename = async (request: any, reply: any) => {
+        const orgId = request.user.organizationId;
+        const userId = request.user.id;
+        const { id } = request.params as any;
+        const { name } = request.body as any;
+
+        if (!name) {
+            return reply.code(400).send({ error: 'New workflow name is required.' });
+        }
+
+        try {
+            const workflow = await workflowService.renameWorkflow(orgId, userId, id, name);
+            return reply.code(200).send({
+                success: true,
+                message: 'Workflow renamed successfully!',
+                workflow,
+            });
+        } catch (err: any) {
+            return handleRouteError(err, reply);
+        }
+    };
+
+    server.patch("/api/workflow/:id/rename", handleRename);
+    server.put("/api/workflow/:id/rename", handleRename);
+
+    // 3.3 Duplicate workflow
+    server.post("/api/workflow/:id/duplicate", async (request, reply) => {
+        const orgId = request.user.organizationId;
+        const userId = request.user.id;
+        const { id } = request.params as any;
+        const { name } = (request.body as any) || {};
+
+        try {
+            const workflow = await workflowService.duplicateWorkflow(orgId, userId, id, name);
+            return reply.code(201).send({
+                success: true,
+                message: 'Workflow duplicated successfully!',
+                workflow,
+            });
+        } catch (err: any) {
+            return handleRouteError(err, reply);
+        }
+    });
+
+    // 3.4 Update workflow status (ACTIVE, PAUSED, DRAFT)
+    const handleStatusUpdate = async (request: any, reply: any) => {
+        const orgId = request.user.organizationId;
+        const userId = request.user.id;
+        const { id } = request.params as any;
+        const { status } = request.body as any;
+
+        if (!status) {
+            return reply.code(400).send({ error: 'Status is required.' });
+        }
+
+        try {
+            const workflow = await workflowService.updateWorkflowStatus(orgId, userId, id, status);
+            return reply.code(200).send({
+                success: true,
+                message: `Workflow status updated to ${status}.`,
+                workflow,
+            });
+        } catch (err: any) {
+            return handleRouteError(err, reply);
+        }
+    };
+
+    server.patch("/api/workflow/:id/status", handleStatusUpdate);
+    server.put("/api/workflow/:id/status", handleStatusUpdate);
+
+
     // 4. Delete workflow (Blocked if MEMBER has canCreateWorkflow = false)
 
     server.delete("/api/workflow/:id" ,async (request , reply)=>{
@@ -200,13 +291,11 @@ export async function workflowRoutes(server: FastifyInstance) {
                     try {
                         const telemetryData = JSON.parse(message);
                         if (telemetryData.organizationId === user.organizationId) {
-                            
-                            // Secure dynamic check: If user is a member without team telemetry access, 
-                            // only send updates on executions they triggered.
-                            if (role === 'MEMBER' && permissions.canViewTeamExecutions === false) {
-                                if (telemetryData.triggeredByUserId !== user.id) {
-                                    return; // Filter it out
-                                }
+                            const isTriggerer = telemetryData.triggeredByUserId && telemetryData.triggeredByUserId === user.id;
+                            const canViewTeam = role === 'ADMIN' || role === 'SINGLE' || permissions?.canViewTeamExecutions === true;
+
+                            if (!isTriggerer && !canViewTeam) {
+                                return; // Filter out executions triggered by other teammates
                             }
                             socket.send(message);
                         }
@@ -269,6 +358,38 @@ export async function workflowRoutes(server: FastifyInstance) {
              return reply.code(400).send({ error: err.message });
         }
     });
+
+    server.post("/api/workflow/:id/replay" , async(request , reply)=>{
+        const orgId=request.user.organizationId;
+        const {id}=request.params as any;
+        const {executionId , targetNodeId , resumeDownstream}= request.body as any;
+        const userId=request.user.id;
+
+        if(!executionId || !targetNodeId){
+              return reply.code(400).send({ error: 'executionId and targetNodeId are required in the request body.' });
+        }
+
+        try{
+            const execution = await workflowService.triggerReplay(
+                orgId,
+                id,
+                executionId,
+                targetNodeId,
+                !!resumeDownstream, // Ensures we pass a clean boolean
+                userId
+            );
+
+            return reply.code(202).send({
+                message: `Workflow execution replay triggered for node '${targetNodeId}'.`,
+                executionId: execution.id,
+                status: execution.status,
+            });
+
+
+        }catch(err:any){
+             return reply.code(400).send({ error: err.message });
+        }
+    })
 
     
 

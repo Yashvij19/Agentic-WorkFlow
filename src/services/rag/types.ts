@@ -5,7 +5,7 @@
 export type RAGMode = 'simple' | 'advanced';
 export type UseCaseProfile = 'GENERAL_QA' | 'TECHNICAL_DOCUMENTATION' | 'COMPANY_POLICY' | 'DATABASE_KNOWLEDGE' | 'CUSTOM';
 export type ParserType = 'auto' | 'native' | 'markitdown';
-export type ChunkStrategy = 'recursive' | 'section' | 'fixed';
+export type ChunkStrategy = 'recursive' | 'section' | 'fixed' | 'hierarchical';
 export type RetrievalMode = 'vector' | 'keyword' | 'hybrid' | 'adaptive';
 export type CitationMode = 'none' | 'inline' | 'source_list';
 export type RerankerProvider = 'none' | 'local_cross_encoder' | 'simple_lexical' | 'cohere';
@@ -108,3 +108,30 @@ export interface RerankOptions {
 export interface IReranker{
   rerank(query:string , candidates:RetrievalResult[] , options:RerankOptions):Promise<RetrievalResult[]>;
 }
+
+export interface RagTimingBreakdown {
+  analysisMs: number;
+  retrievalMs: number;
+  fusionMs: number;
+  rerankMs: number;
+  expansionMs: number;
+  graphMs: number;
+  contextBuildMs: number;
+  generationMs: number;
+  totalMs: number;
+}
+
+export interface RagTraceMetrics {
+  latencyMs: number;
+  timing: RagTimingBreakdown;
+  chunksRetrieved: number;
+  chunksFused: number;
+  chunksReranked: number;
+  hasGraphContext: boolean;
+  graphEdgesFound: number;
+  chunksUsed: number;
+  tokensUsedEstimate: number;
+  estimatedPromptTokens: number;
+  estimatedCompletionTokens: number;
+  estimatedCostUsd: number;
+}

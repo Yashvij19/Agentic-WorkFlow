@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { Activity } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 
 interface ExecutionHistoryProps {
@@ -9,6 +10,7 @@ interface ExecutionHistoryProps {
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
+  onOpenTrace?: (executionId: string, nodeId: string, traceId?: string) => void;
 }
 
 export default function ExecutionHistory({ 
@@ -16,8 +18,13 @@ export default function ExecutionHistory({
   isOpen,
   onOpen,
   onClose,
+  onOpenTrace,
 }: ExecutionHistoryProps) {
   const [history, setHistory] = useState<any[]>([]);
+  const [scopeInfo, setScopeInfo] = useState<{ scope: string; canViewTeamExecutions: boolean; isOwner?: boolean; message?: string }>({ 
+    scope: 'TEAM', 
+    canViewTeamExecutions: true 
+  });
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState<any | null>(null);
 
@@ -28,7 +35,17 @@ export default function ExecutionHistory({
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setHistory(Array.isArray(data) ? data : []);
+      if (Array.isArray(data)) {
+        setHistory(data);
+      } else if (data && Array.isArray(data.executions)) {
+        setHistory(data.executions);
+        setScopeInfo({
+          scope: data.scope || 'TEAM',
+          canViewTeamExecutions: data.canViewTeamExecutions !== false,
+          isOwner: data.isOwner,
+          message: data.message,
+        });
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -61,7 +78,19 @@ export default function ExecutionHistory({
       <div className="fixed bottom-0 left-0 right-0 h-72 bg-[#030617]/95 backdrop-blur-md border-t border-white/[0.08] z-25 shadow-2xl flex flex-col justify-between transition-all duration-300">
       {/* Header */}
       <div className="px-6 py-3.5 bg-black/45 border-b border-white/[0.05] flex items-center justify-between">
-        <span className="text-[10px] font-bold text-slate-200 tracking-widest uppercase">Run Executions Log</span>
+        <div className="flex items-center gap-2.5">
+          <span className="text-[10px] font-bold text-slate-200 tracking-widest uppercase">Run Executions Log</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-bold tracking-wider uppercase border ${
+              scopeInfo.scope === 'TEAM'
+                ? 'bg-emerald-950/40 text-emerald-300 border-emerald-800/30'
+                : 'bg-violet-950/40 text-violet-300 border-violet-800/30'
+            }`}
+          >
+            {scopeInfo.scope === 'TEAM' ? 'All Team Runs' : 'Your Runs Only'}
+          </span>
+        </div>
+
         <div className="flex gap-2">
           <button 
             onClick={fetchHistory} 
@@ -80,18 +109,37 @@ export default function ExecutionHistory({
 
       {/* List */}
       <div className="flex-grow overflow-y-auto px-6 py-4 bg-black/15">
+        {scopeInfo.scope === 'OWN_ONLY' && (
+          <div className="mb-3 px-3.5 py-2 bg-violet-950/20 border border-violet-500/20 rounded-xl text-[11px] text-violet-200 flex items-center gap-2">
+            <span className="font-mono text-xs">ℹ</span>
+            <span>Showing execution runs triggered by you. Team execution logs are restricted by organization permissions.</span>
+          </div>
+        )}
+
         {loading ? (
           <div className="text-center text-[10px] font-mono tracking-wider uppercase text-slate-500 py-12 flex items-center justify-center gap-2">
             <div className="w-3.5 h-3.5 border border-white/20 border-t-white rounded-full animate-spin" />
             Retrieving telemetry history logs...
           </div>
         ) : history.length === 0 ? (
-          <div className="text-center text-xs text-slate-500 py-12 italic">No execution logs found for this workflow.</div>
+          <div className="text-center py-12 space-y-1.5">
+            <p className="text-xs text-slate-400 font-medium">
+              {scopeInfo.scope === 'OWN_ONLY'
+                ? 'You have not executed this workflow yet.'
+                : 'No execution logs found for this workflow yet.'}
+            </p>
+            {scopeInfo.scope === 'OWN_ONLY' && (
+              <p className="text-[10px] text-slate-500">
+                Other team members may have run this workflow, but team run logs are hidden based on your permissions.
+              </p>
+            )}
+          </div>
         ) : (
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-white/[0.05] text-[#687493] uppercase font-bold tracking-widest text-[9px]">
                 <th className="py-2.5 pl-2">Execution Run ID</th>
+                <th className="py-2.5">Executed By</th>
                 <th className="py-2.5">Status</th>
                 <th className="py-2.5">Started At</th>
                 <th className="py-2.5">Duration</th>
@@ -112,9 +160,17 @@ export default function ExecutionHistory({
                     ? 'text-red-400 bg-red-500/10 border-red-500/20'
                     : 'text-sky-400 bg-sky-500/10 border-sky-500/20';
 
+                const userEmail = run.triggeredByUser?.email || 'Direct Trigger';
+
                 return (
                   <tr key={run.id} className="hover:bg-white/[0.02] transition">
                     <td className="py-3 pl-2 font-mono text-slate-300">{run.id}</td>
+                    <td className="py-3">
+                      <span className="text-slate-300 font-medium text-[11px] flex items-center gap-1.5 truncate max-w-[180px]" title={userEmail}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
+                        <span className="truncate">{userEmail}</span>
+                      </span>
+                    </td>
                     <td className="py-3">
                       <span className={`px-2 py-0.5 rounded-lg border text-[9px] font-mono font-bold uppercase tracking-wider ${statusColor}`}>
                         {run.status}
@@ -181,6 +237,16 @@ export default function ExecutionHistory({
                           }`}>
                             {log.status}
                           </span>
+                          {onOpenTrace && (log.outputData?.result?.traceId || log.outputData?.result?.citations || log.nodeId?.includes('rag')) && (
+                            <button
+                              onClick={() => onOpenTrace(selectedRun.id, log.nodeId, log.outputData?.result?.traceId)}
+                              className="px-2 py-0.5 rounded text-[9px] font-bold font-mono bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition cursor-pointer flex items-center gap-1.5"
+                              title="Inspect RAG Telemetry Trace"
+                            >
+                              <Activity className="w-2.5 h-2.5 text-purple-300" />
+                              <span>Trace</span>
+                            </button>
+                          )}
                         </div>
                         <span className="text-[9px] text-[#687493] font-mono">{new Date(log.createdAt).toLocaleTimeString()}</span>
                       </div>

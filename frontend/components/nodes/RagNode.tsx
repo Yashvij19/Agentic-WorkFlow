@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
+import { X, Activity } from 'lucide-react';
 
 export default function RagNode({ id, data }: NodeProps) {
   const { setNodes, setEdges } = useReactFlow();
@@ -22,7 +23,7 @@ export default function RagNode({ id, data }: NodeProps) {
   let statusBadge = null;
 
   if (data.status === 'RUNNING') {
-    borderClass = 'border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.25)] animate-pulse';
+    borderClass = 'border-purple-500/50 running-ring-purple';
     statusBadge = (
       <span className="text-[9px] bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2 py-0.5 rounded animate-pulse font-mono uppercase tracking-wider">
         retrieving
@@ -58,10 +59,10 @@ export default function RagNode({ id, data }: NodeProps) {
           {badge}
           <button
             onClick={handleDelete}
-            className="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs ml-1.5 p-0.5 rounded hover:bg-white/[0.04] leading-none"
+            className="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs ml-1.5 p-1 rounded-md hover:bg-white/[0.06] flex items-center justify-center"
             title="Delete Node"
           >
-            ✕
+            <X className="w-3 h-3" />
           </button>
         </div>
       </div>
@@ -78,7 +79,26 @@ export default function RagNode({ id, data }: NodeProps) {
           {data.query || 'Define search query or variable...'}
         </p>
 
-        {statusBadge && <div className="flex justify-end">{statusBadge}</div>}
+        <div className="flex items-center justify-between pt-1">
+          {statusBadge || <div />}
+          {data.status === 'COMPLETED' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (data.onInspectTrace) {
+                  data.onInspectTrace(id);
+                } else {
+                  // Dispatch custom event for canvas listener
+                  window.dispatchEvent(new CustomEvent('inspect-rag-trace', { detail: { nodeId: id } }));
+                }
+              }}
+              className="text-[9px] font-mono font-bold bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 px-2 py-0.5 rounded transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+              title="Inspect RAG Telemetry Trace"
+            >
+              <Activity className="w-2.5 h-2.5 text-purple-300" /> Trace
+            </button>
+          )}
+        </div>
       </div>
 
       <Handle type="source" position={Position.Bottom} className="w-2.5 h-2.5 bg-purple-500 border border-[#030617]" />

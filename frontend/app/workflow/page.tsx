@@ -4,12 +4,17 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Network, AlertTriangle, Copy, Pencil, Trash2, ExternalLink, Loader2, ChevronDown, Pause, Play, FileEdit } from 'lucide-react';
 import { API_URL } from '../../utils/config';
+import UserProfileDropdown from '../../components/profile/UserProfileDropdown';
+import { useToast } from '@/context/ToastContext';
 
 export default function WorkflowsDashboard() {
+  const { toast } = useToast();
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -25,10 +30,16 @@ export default function WorkflowsDashboard() {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameName, setRenameName] = useState('');
+  const [renameError, setRenameError] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
 
-  // Search & Filter state
+  // Duplicating State
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+
+  // Search, Filter & Sort state
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'ALL' | 'ACTIVE' | 'DRAFT' | 'PAUSED'>('ALL');
+  const [sortBy, setSortBy] = useState<'RECENT' | 'NAME_ASC' | 'NAME_DESC' | 'OLDEST'>('RECENT');
   
   // Card Actions Menu State
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -48,6 +59,7 @@ export default function WorkflowsDashboard() {
       try {
         const parsed = JSON.parse(userStr);
         setUserRole(parsed.role);
+        setCurrentUserId(parsed.id || parsed.userId || null);
       } catch (err) {
         console.error(err);
       }
@@ -136,44 +148,115 @@ export default function WorkflowsDashboard() {
       if (!res.ok) throw new Error(data.error || 'Failed to delete workflow.');
 
       setWorkflows((prev) => prev.filter((wf) => wf.id !== deletingId));
+      toast.success(`Workflow "${deletingName}" deleted successfully.`);
       setDeletingId(null);
       setDeletingName('');
       setShowDeleteModal(false);
     } catch (err: any) {
-      alert(`Delete error: ${err.message}`);
+      toast.error(`Delete error: ${err.message}`);
     }
   };
 
-  const handleDuplicate = (wf: any, e: React.MouseEvent) => {
+  const handleDuplicate = async (wf: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    const duplicated = {
-      ...wf,
-      id: `dup-${Math.random().toString(36).substr(2, 9)}`,
-      name: `${wf.name} (Copy)`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setWorkflows((prev) => [duplicated, ...prev]);
     setOpenMenuId(null);
+    setDuplicatingId(wf.id);
+    const token = localStorage.getItem('token');
+
+    try {
+      const res = await fetch(`${API_URL}/api/workflow/${wf.id}/duplicate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to duplicate workflow.');
+
+      const newWf = {
+        ...data.workflow,
+        description: data.workflow.description || 'Automated multi-agent execution pipeline.',
+        status: data.workflow.status || 'ACTIVE',
+      };
+
+      setWorkflows((prev) => [newWf, ...prev]);
+      toast.success(`Workflow duplicated as "${newWf.name}".`);
+    } catch (err: any) {
+      toast.error(`Duplication error: ${err.message}`);
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
+
+  const handleToggleStatus = async (wf: any, newStatus: 'ACTIVE' | 'PAUSED', e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpenMenuId(null);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/workflow/${wf.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update workflow status.');
+
+      setWorkflows((prev) =>
+        prev.map((item) => (item.id === wf.id ? { ...item, status: newStatus } : item))
+      );
+      toast.success(data.message || `Workflow is now ${newStatus}.`);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
   };
 
   const handleRenameTrigger = (wf: any, e: React.MouseEvent) => {
     e.stopPropagation();
     setRenameId(wf.id);
     setRenameName(wf.name);
+    setRenameError('');
     setShowRenameModal(true);
     setOpenMenuId(null);
   };
 
-  const handleRenameSubmit = (e: React.FormEvent) => {
+  const handleRenameSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!renameId || !renameName.trim()) return;
-    setWorkflows((prev) =>
-      prev.map((wf) => (wf.id === renameId ? { ...wf, name: renameName } : wf))
-    );
-    setRenameId(null);
-    setRenameName('');
-    setShowRenameModal(false);
+    setRenameError('');
+    setIsRenaming(true);
+    const token = localStorage.getItem('token');
+
+    try {
+      const res = await fetch(`${API_URL}/api/workflow/${renameId}/rename`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: renameName.trim() }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to rename workflow.');
+
+      const updatedName = data.workflow?.name || renameName.trim();
+      setWorkflows((prev) =>
+        prev.map((wf) => (wf.id === renameId ? { ...wf, name: updatedName } : wf))
+      );
+      setShowRenameModal(false);
+      setRenameId(null);
+      setRenameName('');
+    } catch (err: any) {
+      setRenameError(err.message);
+    } finally {
+      setIsRenaming(false);
+    }
   };
 
   // Render miniature workflow previews
@@ -219,16 +302,32 @@ export default function WorkflowsDashboard() {
   //   );
   // };
 
-  // Filter workflows list
-  const filteredWorkflows = workflows.filter((wf) => {
-    const matchesSearch = wf.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTab =
-      activeTab === 'ALL' ||
-      (activeTab === 'ACTIVE' && wf.status === 'ACTIVE') ||
-      (activeTab === 'DRAFT' && wf.status === 'DRAFT') ||
-      (activeTab === 'PAUSED' && wf.status === 'PAUSED');
-    return matchesSearch && matchesTab;
-  });
+  // Filter and sort workflows list
+  const filteredWorkflows = workflows
+    .filter((wf) => {
+      const matchesSearch = wf.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesTab =
+        activeTab === 'ALL' ||
+        (activeTab === 'ACTIVE' && wf.status === 'ACTIVE') ||
+        (activeTab === 'DRAFT' && wf.status === 'DRAFT') ||
+        (activeTab === 'PAUSED' && wf.status === 'PAUSED');
+      return matchesSearch && matchesTab;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'NAME_ASC') {
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'NAME_DESC') {
+        return b.name.localeCompare(a.name, undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'OLDEST') {
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      }
+      // 'RECENT' (default): sort by latest updated/created
+      const dateA = new Date(a.updatedAt || a.createdAt).getTime();
+      const dateB = new Date(b.updatedAt || b.createdAt).getTime();
+      return dateB - dateA;
+    });
 
   if (loading) {
     return (
@@ -279,21 +378,16 @@ export default function WorkflowsDashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
             {userRole && userRole !== 'MEMBER' && (
               <Link 
                 href="/setting" 
-                className="text-xs font-semibold text-[#98A4C2] hover:text-white transition duration-200 flex items-center gap-1.5"
+                className="text-xs font-semibold text-[#98A4C2] hover:text-white transition duration-200 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/5"
               >
-                {userRole === 'ADMIN' ? 'Organization Settings' : 'Credentials Setup'}
+                {userRole === 'ADMIN' ? 'Settings' : 'Credentials'}
               </Link>
             )}
-            <button 
-              onClick={handleLogout} 
-              className="text-xs font-bold tracking-wider uppercase text-[#EF4444] hover:text-red-300 transition duration-200 cursor-pointer"
-            >
-              Sign Out
-            </button>
+            <UserProfileDropdown />
           </div>
         </div>
       </nav>
@@ -358,10 +452,21 @@ export default function WorkflowsDashboard() {
                 className="w-48 sm:w-64 px-4 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-[#8B5CF6]/50 focus:ring-1 focus:ring-[#8B5CF6]/25 transition"
               />
             </div>
-            <select className="px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-[10px] font-semibold text-[#98A4C2] uppercase tracking-wider focus:outline-none cursor-pointer">
-              <option>Recently Updated</option>
-              <option>Name A-Z</option>
-            </select>
+            
+            {/* Styled Dark Glassmorphism Sort Dropdown */}
+            <div className="relative flex items-center">
+              <select 
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="appearance-none pl-3 pr-8 py-2 bg-[#080D1D] hover:bg-[#0d142d] border border-white/10 hover:border-purple-500/30 rounded-xl text-[10px] font-semibold text-slate-200 uppercase tracking-wider focus:outline-none focus:border-purple-500/50 transition cursor-pointer shadow-sm"
+              >
+                <option value="RECENT" className="bg-[#080D1D] text-slate-200 py-1">Recently Updated</option>
+                <option value="NAME_ASC" className="bg-[#080D1D] text-slate-200 py-1">Name A-Z</option>
+                <option value="NAME_DESC" className="bg-[#080D1D] text-slate-200 py-1">Name Z-A</option>
+                <option value="OLDEST" className="bg-[#080D1D] text-slate-200 py-1">Oldest First</option>
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 pointer-events-none" />
+            </div>
           </div>
         </div>
 
@@ -369,8 +474,8 @@ export default function WorkflowsDashboard() {
         {filteredWorkflows.length === 0 ? (
           /* Empty state */
           <div className="border border-dashed border-white/10 rounded-2xl p-20 text-center bg-[#050918]">
-            <div className="w-12 h-12 bg-white/[0.02] border border-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-              <span className="text-xl">🕸️</span>
+            <div className="w-12 h-12 bg-purple-500/10 border border-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+              <Network className="w-6 h-6 text-purple-400" />
             </div>
             <h3 className="text-lg font-bold text-[#F5F7FF]">Create your first workflow</h3>
             <p className="text-[#98A4C2] text-xs max-w-sm mx-auto mt-2 leading-relaxed font-light">
@@ -432,24 +537,59 @@ export default function WorkflowsDashboard() {
 
                       {/* Dropdown Menu */}
                       {isMenuOpen && (
-                        <div className="absolute right-0 top-7 w-40 bg-[#080D1D] border border-white/10 rounded-xl shadow-2xl z-20 overflow-hidden py-1">
+                        <div className="absolute right-0 top-7 w-48 bg-[#080D1D] border border-white/10 rounded-xl shadow-2xl z-20 overflow-hidden py-1 backdrop-blur-xl">
                           <Link 
                             href={`/workflow/${wf.id}`}
-                            className="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition"
+                            className="flex items-center gap-2.5 w-full text-left px-3.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition"
                           >
-                            Open Workflow
+                            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Open Workflow</span>
                           </Link>
+
+                          {/* Pause / Resume status toggle */}
+                          {(userRole === 'ADMIN' || userRole === 'SINGLE' || wf.createdByUserId === currentUserId) && (
+                            wf.status === 'ACTIVE' ? (
+                              <button
+                                onClick={(e) => handleToggleStatus(wf, 'PAUSED', e)}
+                                className="flex items-center gap-2.5 w-full text-left px-3.5 py-2 text-xs text-amber-300 hover:bg-amber-500/10 hover:text-amber-200 transition cursor-pointer"
+                              >
+                                <Pause className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Pause Workflow</span>
+                              </button>
+                            ) : wf.status === 'PAUSED' ? (
+                              <button
+                                onClick={(e) => handleToggleStatus(wf, 'ACTIVE', e)}
+                                className="flex items-center gap-2.5 w-full text-left px-3.5 py-2 text-xs text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200 transition cursor-pointer"
+                              >
+                                <Play className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Activate Workflow</span>
+                              </button>
+                            ) : null
+                          )}
+
                           <button
                             onClick={(e) => handleRenameTrigger(wf, e)}
-                            className="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition cursor-pointer"
+                            className="flex items-center gap-2.5 w-full text-left px-3.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition cursor-pointer"
                           >
-                            Rename
+                            <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Rename</span>
                           </button>
                           <button
                             onClick={(e) => handleDuplicate(wf, e)}
-                            className="block w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition cursor-pointer"
+                            disabled={duplicatingId === wf.id}
+                            className="flex items-center gap-2.5 w-full text-left px-3.5 py-2 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition cursor-pointer disabled:opacity-50"
                           >
-                            Duplicate
+                            {duplicatingId === wf.id ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                                <span>Duplicating...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Duplicate</span>
+                              </>
+                            )}
                           </button>
                           <button
                             onClick={(e) => {
@@ -459,9 +599,10 @@ export default function WorkflowsDashboard() {
                               setShowDeleteModal(true);
                               setOpenMenuId(null);
                             }}
-                            className="block w-full text-left px-4 py-2 text-xs text-red-400 hover:bg-red-950/20 hover:text-red-300 transition cursor-pointer"
+                            className="flex items-center gap-2.5 w-full text-left px-3.5 py-2 text-xs text-red-400 hover:bg-red-950/20 hover:text-red-300 transition cursor-pointer"
                           >
-                            Delete
+                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                            <span>Delete</span>
                           </button>
                         </div>
                       )}
@@ -529,8 +670,9 @@ export default function WorkflowsDashboard() {
             <p className="text-xs text-[#98A4C2] font-light mb-4">Set a name to initialize your node graph canvas.</p>
             
             {createError && (
-              <div className="text-[#EF4444] text-xs bg-[#EF4444]/10 border border-[#EF4444]/20 px-3.5 py-2.5 rounded-xl mb-4">
-                ⚠️ {createError}
+              <div className="text-[#EF4444] text-xs bg-[#EF4444]/10 border border-[#EF4444]/20 px-3.5 py-2.5 rounded-xl mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{createError}</span>
               </div>
             )}
             
@@ -607,6 +749,13 @@ export default function WorkflowsDashboard() {
             <h2 className="text-lg font-bold text-white mb-2">Rename Workflow</h2>
             <p className="text-xs text-[#98A4C2] font-light mb-4">Set a new name for this agent graph blueprint.</p>
             
+            {renameError && (
+              <div className="text-[#EF4444] text-xs bg-[#EF4444]/10 border border-[#EF4444]/20 px-3.5 py-2.5 rounded-xl mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{renameError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleRenameSubmit} className="space-y-4">
               <div>
                 <label className="block text-[10px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2">
@@ -616,7 +765,10 @@ export default function WorkflowsDashboard() {
                   type="text"
                   required
                   value={renameName}
-                  onChange={(e) => setRenameName(e.target.value)}
+                  onChange={(e) => {
+                    setRenameName(e.target.value);
+                    if (renameError) setRenameError('');
+                  }}
                   className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl focus:border-[#8B5CF6]/50 focus:outline-none transition text-sm text-white"
                 />
               </div>
@@ -627,16 +779,19 @@ export default function WorkflowsDashboard() {
                     setShowRenameModal(false);
                     setRenameId(null);
                     setRenameName('');
+                    setRenameError('');
                   }}
-                  className="px-4 py-2.5 bg-transparent border border-white/10 hover:bg-white/[0.02] text-xs font-bold tracking-wider uppercase rounded-xl text-[#98A4C2] hover:text-white transition"
+                  className="px-4 py-2.5 bg-transparent border border-white/10 hover:bg-white/[0.02] text-xs font-bold tracking-wider uppercase rounded-xl text-[#98A4C2] hover:text-white transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-xs font-bold tracking-wider uppercase rounded-xl transition text-white"
+                  disabled={isRenaming}
+                  className="px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-xs font-bold tracking-wider uppercase rounded-xl transition text-white cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
-                  Apply Change
+                  {isRenaming && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isRenaming ? 'Applying...' : 'Apply Change'}</span>
                 </button>
               </div>
             </form>

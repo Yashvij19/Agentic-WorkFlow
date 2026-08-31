@@ -17,25 +17,38 @@ export const workflowQueue = new Queue(WORKFLOW_QUEUE_NAME , {
 
 });
 
-export async function enqueWorkflowJob(executionId:string , workflowId:string , organizationId:string , targetNodeId?:string) {
-    
-    await workflowQueue.add(`execute-${executionId}`,{
-        // 1. The Job Payload (What the worker needs to do the job)
-        executionId , workflowId , organizationId , targetNodeId
-    },
-    
-    // 2. The Job Options (How Redis should handle this specific job)
-    {
-        // group:{
-        //     name:organizationId
-        // },
-
-        // We also add a unique jobId to prevent the EXACT same execution from 
-      // being accidentally added to the queue twice (Queue-level idempotency!)
-        jobId:executionId
+export async function enqueWorkflowJob(
+    executionId: string, 
+    workflowId: string, 
+    organizationId: string, 
+    targetNodeId?: string, 
+    resumeDownstream?: boolean,
+    isReplay?: boolean,
+    triggeredByUserId?: string
+) {
+    try {
+        const existingJob = await workflowQueue.getJob(executionId);
+        if (existingJob) {
+            await existingJob.remove();
+            console.log(`🧹 [Queue] Removed existing job ${executionId} before re-enqueuing.`);
+        }
+    } catch (err: any) {
+        console.warn(`⚠️ [Queue] Error removing job ${executionId}:`, err.message);
     }
 
-
-);
-
+    await workflowQueue.add(
+        `execute-${executionId}`,
+        {
+            executionId, 
+            workflowId, 
+            organizationId, 
+            targetNodeId,
+            resumeDownstream,
+            isReplay,
+            triggeredByUserId
+        },
+        {
+            jobId: executionId
+        }
+    );
 }
