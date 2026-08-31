@@ -290,6 +290,38 @@ export async function workflowRoutes(server: FastifyInstance) {
         }
     });
 
+    server.post("/api/workflow/:id/replay" , async(request , reply)=>{
+        const orgId=request.user.organizationId;
+        const {id}=request.params as any;
+        const {executionId , targetNodeId , resumeDownstream}= request.body as any;
+        const userId=request.user.id;
+
+        if(!executionId || !targetNodeId){
+              return reply.code(400).send({ error: 'executionId and targetNodeId are required in the request body.' });
+        }
+
+        try{
+            const execution = await workflowService.triggerReplay(
+                orgId,
+                id,
+                executionId,
+                targetNodeId,
+                !!resumeDownstream, // Ensures we pass a clean boolean
+                userId
+            );
+
+            return reply.code(202).send({
+                message: `Workflow execution replay triggered for node '${targetNodeId}'.`,
+                executionId: execution.id,
+                status: execution.status,
+            });
+
+
+        }catch(err:any){
+             return reply.code(400).send({ error: err.message });
+        }
+    })
+
     
 
 }

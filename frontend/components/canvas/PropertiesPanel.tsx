@@ -2,6 +2,7 @@
 'use client';
 
 import React from 'react';
+import { Zap, Search, Sliders, Activity, RotateCcw } from 'lucide-react';
 
 interface PropertiesPanelProps {
   selectedNode: any;
@@ -11,6 +12,7 @@ interface PropertiesPanelProps {
   onDeleteNode: (nodeId: string) => void;
   partialRunResult: string | null;
   onOpenTraceModal?: (nodeId: string) => void;
+  onReplayNode: (nodeId: string, resumeDownstream: boolean) => void; 
 }
 
 export default function PropertiesPanel({
@@ -21,6 +23,7 @@ export default function PropertiesPanel({
   onDeleteNode,
   partialRunResult,
   onOpenTraceModal,
+  onReplayNode,
 }: PropertiesPanelProps) {
   if (!selectedNode) return null;
 
@@ -404,9 +407,10 @@ export default function PropertiesPanel({
                       code: `module.exports = async function(inputs, context) {\n  // Transform and clean data\n  return {\n    cleanText: inputs.text?.trim(),\n    timestamp: new Date().toISOString()\n  };\n};`,
                     })
                   }
-                  className="py-1.5 px-2 bg-black/30 hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/30 rounded-lg text-[10px] text-slate-300 hover:text-amber-200 transition cursor-pointer text-left"
+                  className="py-1.5 px-2 bg-black/30 hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/30 rounded-lg text-[10px] text-slate-300 hover:text-amber-200 transition cursor-pointer text-left flex items-center gap-1.5"
                 >
-                  ⚡ Transform Data
+                  <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Transform Data</span>
                 </button>
                 <button
                   type="button"
@@ -416,9 +420,10 @@ export default function PropertiesPanel({
                       code: `module.exports = async function(inputs, context) {\n  // Query data from previous nodes\n  const prev = context.node_1?.output;\n  console.log("Memory context:", prev);\n  return { merged: prev };\n};`,
                     })
                   }
-                  className="py-1.5 px-2 bg-black/30 hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/30 rounded-lg text-[10px] text-slate-300 hover:text-amber-200 transition cursor-pointer text-left"
+                  className="py-1.5 px-2 bg-black/30 hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/30 rounded-lg text-[10px] text-slate-300 hover:text-amber-200 transition cursor-pointer text-left flex items-center gap-1.5"
                 >
-                  🔍 Query Memory
+                  <Search className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Query Memory</span>
                 </button>
               </div>
             </div>
@@ -488,9 +493,10 @@ export default function PropertiesPanel({
                       code: `def main(inputs, context):\n    # Process text or list\n    print("Running Python processor...")\n    return {\n        "processed": True,\n        "keys": list(inputs.keys())\n    }`,
                     })
                   }
-                  className="py-1.5 px-2 bg-black/30 hover:bg-cyan-500/10 border border-white/5 hover:border-cyan-500/30 rounded-lg text-[10px] text-slate-300 hover:text-cyan-200 transition cursor-pointer text-left"
+                  className="py-1.5 px-2 bg-black/30 hover:bg-cyan-500/10 border border-white/5 hover:border-cyan-500/30 rounded-lg text-[10px] text-slate-300 hover:text-cyan-200 transition cursor-pointer text-left flex items-center gap-1.5"
                 >
-                  ⚡ Text/Data Filter
+                  <Sliders className="w-3 h-3 text-cyan-400 shrink-0" />
+                  <span>Text/Data Filter</span>
                 </button>
                 <button
                   type="button"
@@ -500,9 +506,10 @@ export default function PropertiesPanel({
                       code: `def main(inputs, context):\n    # Extract all ancestor answers\n    answers = [v.get('output') for k, v in context.items() if 'output' in v]\n    return {"total_steps": len(answers), "answers": answers}`,
                     })
                   }
-                  className="py-1.5 px-2 bg-black/30 hover:bg-cyan-500/10 border border-white/5 hover:border-cyan-500/30 rounded-lg text-[10px] text-slate-300 hover:text-cyan-200 transition cursor-pointer text-left"
+                  className="py-1.5 px-2 bg-black/30 hover:bg-cyan-500/10 border border-white/5 hover:border-cyan-500/30 rounded-lg text-[10px] text-slate-300 hover:text-cyan-200 transition cursor-pointer text-left flex items-center gap-1.5"
                 >
-                  🔍 Query Memory
+                  <Search className="w-3 h-3 text-cyan-400 shrink-0" />
+                  <span>Query Memory</span>
                 </button>
               </div>
             </div>
@@ -566,9 +573,31 @@ export default function PropertiesPanel({
             onClick={() => onOpenTraceModal(id)}
             className="w-full py-2.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 hover:border-purple-500/60 text-purple-200 text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 shadow-lg cursor-pointer flex items-center justify-center gap-2"
           >
-            <span>📊</span> Inspect Live RAG Trace
+            <Activity className="w-3.5 h-3.5 text-purple-300" />
+            <span>Inspect Live RAG Trace</span>
           </button>
         )}
+
+        {/* Replay Node Actions Grid */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => onReplayNode(id, false)}
+            className="py-2.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 hover:border-blue-500/50 text-blue-200 text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 shadow-md cursor-pointer flex items-center justify-center gap-1.5"
+            title="Run only this node using cached upstream data"
+          >
+            <Zap className="w-3.5 h-3.5 text-blue-300" />
+            <span>Run Step Only</span>
+          </button>
+          <button
+            onClick={() => onReplayNode(id, true)}
+            className="py-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-500/50 text-indigo-200 text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 shadow-md cursor-pointer flex items-center justify-center gap-1.5"
+            title="Replay from this node through all downstream children"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-indigo-300" />
+            <span>Replay From Here</span>
+          </button>
+        </div>
+
 
         {/* Run Up to Node Action Button */}
         <button

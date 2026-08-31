@@ -90,12 +90,30 @@ function resolveAncestors(targetId:string , edges:any[]):Set<string>{
   return ancestors;
 }
 
+// Recursively collect the target node and all of its downstream children
+function resolveDownstreamNodes(startNodeId: string, edges: any[]): Set<string> {
+  const downstream = new Set<string>();
+  const queue: string[] = [startNodeId];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    // Find all edges where source is current
+    const children = edges.filter((e: any) => e.source === current).map((e: any) => e.target);
+    for (const child of children) {
+      if (!downstream.has(child)) {
+        downstream.add(child);
+        queue.push(child);
+      }
+    }
+  }
+  return downstream;
+}
 
 
 
 const processWorkflow = async (job: Job) => {
 
-  const { executionId, workflowId, organizationId  , targetNodeId} = job.data;
+   const { executionId, workflowId, organizationId, targetNodeId, resumeDownstream, isReplay } = job.data;
 
   console.log(`\n👨‍🍳 [Worker] Picked up execution: ${executionId}`);
   console.log(`📂 [Worker] Workflow ID: ${workflowId} | Org ID: ${organizationId}`);
@@ -139,11 +157,21 @@ const processWorkflow = async (job: Job) => {
   // 4. Resolve sub-graph filter if targetNodeId is specified
 
   let nodesToExecute=sortedNodes;
-  if(targetNodeId){
-    console.log(`🎯 [Worker] Computing dependency tree for node: ${targetNodeId}`);
-    const ancestors = resolveAncestors(targetNodeId , edges);
-    nodesToExecute=sortedNodes.filter(node=>ancestors.has(node.id));
-    console.log(`🎯 [Worker] Sub-graph execution path: ${nodesToExecute.map(n => n.id).join(' -> ')}`);
+   if (targetNodeId) {
+    if (isReplay) {
+      console.log(`🎯 [Worker] Replay triggered for target: ${targetNodeId} | resumeDownstream: ${resumeDownstream}`);
+      const downstream = resolveDownstreamNodes(targetNodeId, edges);
+      // We only execute the target node itself OR downstream nodes if resumeDownstream is true
+      nodesToExecute = sortedNodes.filter(node => 
+        node.id === targetNodeId || (resumeDownstream && downstream.has(node.id))
+      );
+      console.log(`🔁 [Worker] Sub-graph Replay path: ${nodesToExecute.map(n => n.id).join(' -> ')}`);
+    } else {
+      console.log(`🎯 [Worker] Computing dependency tree for node: ${targetNodeId}`);
+      const ancestors = resolveAncestors(targetNodeId, edges);
+      nodesToExecute = sortedNodes.filter(node => ancestors.has(node.id));
+      console.log(`🎯 [Worker] Sub-graph execution path: ${nodesToExecute.map(n => n.id).join(' -> ')}`);
+    }
   }
 
   // 5. Hydrate previous steps' logs (idempotency/memory recovery)

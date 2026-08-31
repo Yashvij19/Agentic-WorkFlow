@@ -309,6 +309,99 @@ export class workflowService{
         return execution;
     }
 
+    static async triggerReplay(
+        orgId:string,
+        workflowId:string,
+        executionId:string,
+        targetNodeId:string,
+        resumeDownstream:boolean,
+        userId:string
+    ){
+        const {role , permissions} = await workflowService.getUserAccess(userId);
+
+        const  workflow = await prisma.workflow.findFirst({
+            where:{
+                id:workflowId,  
+                organizationId:orgId
+            }
+        });
+
+        if(!workflow){
+            throw new Error("Workflow not found.");
+        }
+
+        if(!workflowService.hasWorkflowAccess(workflow, userId , role , permissions , "execute")){
+            throw new Error("Access Denied: You do not have permission to execute this workflow.");
+        }
+
+        // 2. Verify the execution exists
+
+        const execution=await prisma.workflowExecution.findFirst({
+            where:{
+                id:executionId , 
+                workflowId,
+                organizationId:orgId
+            }
+        });
+
+        if (!execution) {
+            throw new Error("Execution not found.");
+        }
+
+        // 3. Determine which nodes to clear from database logs
+          const edges = workflow.dagJson as any[];
+        const nodesToClear = new Set<string>();
+        nodesToClear.add(targetNodeId);
+
+          if (resumeDownstream) {
+            // Find all downstream children
+            const downstream = new Set<string>();
+            const queue: string[] = [targetNodeId];
+            while (queue.length > 0) {
+                const current = queue.shift()!;
+                const children = edges.filter((e: any) => e.source === current).map((e: any) => e.target);
+                for (const child of children) {
+                    if (!downstream.has(child)) {
+                        downstream.add(child);
+                        queue.push(child);
+                    }
+                }
+            }
+            downstream.forEach(id => nodesToClear.add(id));
+        }
+
+          // 4. Delete the logs of nodes that will be re-run
+        await prisma.executionLog.deleteMany({
+            where: {
+                executionId,
+                nodeId: { in: Array.from(nodesToClear) }
+            }
+        });
+
+        // 5. Update execution status back to PENDING and clear completedAt
+        const updatedExecution = await prisma.workflowExecution.update({
+            where: { id: executionId },
+            data: {
+                status: 'PENDING',
+                completedAt: null
+            }
+        });
+
+         // 6. Enqueue back to BullMQ queue as a replay job
+        await enqueWorkflowJob(
+            executionId, 
+            workflowId, 
+            orgId, 
+            targetNodeId, 
+            resumeDownstream, 
+            true // isReplay: true
+        );
+        return updatedExecution;
+
+
+
+    }
+
     static async deleteWorkflow(orgId:string,userId: string,id:string ){
         const { role, permissions } = await workflowService.getUserAccess(userId);
 

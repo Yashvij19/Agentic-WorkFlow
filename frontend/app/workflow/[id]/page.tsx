@@ -3,6 +3,7 @@
 
 import React, { useCallback, useMemo, useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { CheckCircle2, AlertTriangle, X } from 'lucide-react';
 import { API_URL, WS_URL } from '../../../utils/config';
 import ReactFlow, {
   Background,
@@ -55,7 +56,7 @@ export default function WorkflowWorkspace() {
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [partialRunResult, setPartialRunResult] = useState<string | null>(null);
   const partialRunRef = useRef<{ runId: string | null; targetId: string | null }>({ runId: null, targetId: null });
-
+ const idempotencyKeyRef = useRef<string>('');
   // Trace Modal state
   const [traceModal, setTraceModal] = useState<{
     isOpen: boolean;
@@ -89,6 +90,12 @@ export default function WorkflowWorkspace() {
     };
     window.addEventListener('inspect-rag-trace', handleInspect);
     return () => window.removeEventListener('inspect-rag-trace', handleInspect);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = crypto.randomUUID();
+    }
   }, []);
 
   // Register Custom Node Types
@@ -141,7 +148,7 @@ export default function WorkflowWorkspace() {
 
     const ws = new WebSocket(`${WS_URL}/api/workflow/live?token=${token}`);
 
-    ws.onopen = () => console.log('📡 Connected to Telemetry Room');
+    ws.onopen = () => console.log('Connected to Telemetry Room');
 
     ws.onmessage = (event) => {
       try {
@@ -161,13 +168,13 @@ export default function WorkflowWorkspace() {
           );
 
           if (telemetry.status === 'COMPLETED') {
-            setExecutionMessage(`✅ Step '${telemetry.nodeId}' finished!`);
+            setExecutionMessage(`Step '${telemetry.nodeId}' finished.`);
             setIsExecuting(false);
           } else if (telemetry.status === 'FAILED') {
-            setExecutionMessage(`❌ Step '${telemetry.nodeId}' failed.`);
+            setExecutionMessage(`Step '${telemetry.nodeId}' failed.`);
             setIsExecuting(false);
           } else if (telemetry.status === 'RUNNING') {
-            setExecutionMessage(`⚡ Executing '${telemetry.nodeId}'...`);
+            setExecutionMessage(`Executing '${telemetry.nodeId}'...`);
           }
         }
 
@@ -304,7 +311,9 @@ export default function WorkflowWorkspace() {
     try {
       const res = await fetch(`${API_URL}/api/workflow/${id}/execute`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`,
+         'idempotency-key': idempotencyKeyRef.current // ADDED THIS HEADER
+       },
       });
 
       const data = await res.json();
@@ -314,6 +323,10 @@ export default function WorkflowWorkspace() {
     } catch (err: any) {
       setExecutionMessage(`Failed: ${err.message}`);
       setIsExecuting(false);
+    }
+    finally {
+      
+      idempotencyKeyRef.current = crypto.randomUUID();
     }
   };
 
@@ -340,7 +353,9 @@ export default function WorkflowWorkspace() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
+           'idempotency-key': idempotencyKeyRef.current 
+
         },
         body: JSON.stringify({ nodeId })
       });
@@ -355,7 +370,110 @@ export default function WorkflowWorkspace() {
       setExecutionMessage(`Failed: ${err.message}`);
       setIsExecuting(false);
     }
+    finally {
+      //  Refresh the key so the NEXT run gets a fresh UUID
+      idempotencyKeyRef.current = crypto.randomUUID();
+    }
   };
+
+    // 7.2 Trigger workflow execution replay starting from a specific node
+  const handleReplayNode = async (nodeId: string, resumeDownstream: boolean) => {
+    const token = localStorage.getItem('token');
+    
+    // First, let's fetch execution history to get the latest run ID
+    let executionId = '';
+    try {
+      const histRes = await fetch(`${API_URL}/api/workflow/${id}/executions`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const history = await histRes.json();
+      if (Array.isArray(history) && history.length > 0) {
+        // history is ordered descending, index 0 is the latest run
+        executionId = history[0].id;
+      }
+    } catch (err: any) {
+      console.error("Failed to load execution history for replay:", err.message);
+    }
+
+    if (!executionId) {
+      showToast("No previous execution found to replay. Please run the workflow fully once first.", "error");
+      return;
+    }
+
+    setIsExecuting(true);
+    setExecutionMessage(resumeDownstream 
+      ? `Replaying workflow from node '${nodeId}' to end...` 
+      : `Re-running step '${nodeId}' only...`
+    );
+    setPartialRunResult(null); // Reset output box
+
+    // Auto-save canvas schema first
+    await handleSave(true);
+
+    // Compute which nodes to reset visually back to PENDING on the canvas
+    const nodesToReset = new Set<string>();
+    nodesToReset.add(nodeId);
+
+    if (resumeDownstream) {
+      const queue = [nodeId];
+      const downstream = new Set<string>();
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        const children = edges.filter(e => e.source === current).map(e => e.target);
+        for (const child of children) {
+          if (!downstream.has(child)) {
+            downstream.add(child);
+            queue.push(child);
+          }
+        }
+      }
+      downstream.forEach(id => nodesToReset.add(id));
+    }
+
+    // Update statuses on react flow nodes visually
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => ({
+        ...node,
+        data: { 
+          ...node.data, 
+          status: nodesToReset.has(node.id) ? 'PENDING' : node.data.status 
+        },
+      }))
+    );
+
+    try {
+      const res = await fetch(`${API_URL}/api/workflow/${id}/replay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'idempotency-key': idempotencyKeyRef.current
+        },
+        body: JSON.stringify({
+          executionId,
+          targetNodeId: nodeId,
+          resumeDownstream
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Replay failed to trigger.');
+
+      setExecutionMessage(resumeDownstream 
+        ? `Replay running from step ${nodeId}...` 
+        : `Re-running step ${nodeId}...`
+      );
+      
+      // Update ref to track WebSocket execution details so it grabs outputs when done
+      partialRunRef.current = { runId: executionId, targetId: nodeId };
+    } catch (err: any) {
+      setExecutionMessage(`Failed: ${err.message}`);
+      setIsExecuting(false);
+    } finally {
+      idempotencyKeyRef.current = crypto.randomUUID();
+    }
+  };
+
 
 
 
@@ -481,6 +599,7 @@ export default function WorkflowWorkspace() {
             onDeleteNode={handleDeleteNode}
             partialRunResult={partialRunResult}
             onOpenTraceModal={(nodeId) => setTraceModal({ isOpen: true, nodeId, executionId: null, traceId: null })}
+            onReplayNode={handleReplayNode}
           />
         )}
       </div>
@@ -515,13 +634,17 @@ export default function WorkflowWorkspace() {
                 : 'bg-red-950/90 border-red-500/40 text-red-200 shadow-red-950/50'
             }`}
           >
-            <span className="text-base">{toast.type === 'success' ? '✨' : '⚠️'}</span>
+            {toast.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+            )}
             <div className="text-xs font-semibold tracking-wide">{toast.message}</div>
             <button
               onClick={() => setToast(null)}
-              className="ml-2 text-slate-400 hover:text-white transition p-0.5 rounded cursor-pointer"
+              className="ml-2 text-slate-400 hover:text-white transition p-0.5 rounded cursor-pointer flex items-center justify-center"
             >
-              ✕
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>

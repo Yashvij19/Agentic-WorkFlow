@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Network, AlertTriangle } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 
 export default function WorkflowsDashboard() {
@@ -369,8 +370,8 @@ export default function WorkflowsDashboard() {
         {filteredWorkflows.length === 0 ? (
           /* Empty state */
           <div className="border border-dashed border-white/10 rounded-2xl p-20 text-center bg-[#050918]">
-            <div className="w-12 h-12 bg-white/[0.02] border border-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-              <span className="text-xl">🕸️</span>
+            <div className="w-12 h-12 bg-purple-500/10 border border-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+              <Network className="w-6 h-6 text-purple-400" />
             </div>
             <h3 className="text-lg font-bold text-[#F5F7FF]">Create your first workflow</h3>
             <p className="text-[#98A4C2] text-xs max-w-sm mx-auto mt-2 leading-relaxed font-light">
@@ -529,8 +530,9 @@ export default function WorkflowsDashboard() {
             <p className="text-xs text-[#98A4C2] font-light mb-4">Set a name to initialize your node graph canvas.</p>
             
             {createError && (
-              <div className="text-[#EF4444] text-xs bg-[#EF4444]/10 border border-[#EF4444]/20 px-3.5 py-2.5 rounded-xl mb-4">
-                ⚠️ {createError}
+              <div className="text-[#EF4444] text-xs bg-[#EF4444]/10 border border-[#EF4444]/20 px-3.5 py-2.5 rounded-xl mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{createError}</span>
               </div>
             )}
             

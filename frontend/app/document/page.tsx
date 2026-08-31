@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { Loader } from '../../components/Loader';
 import Swal from 'sweetalert2';
@@ -366,8 +367,9 @@ export default function DocumentKnowledgePage() {
 
                   <div className="text-xs text-[#98A4C2]">
                     {selectedFile ? (
-                      <span className="font-medium text-purple-300 bg-purple-950/40 border border-purple-800/30 px-2.5 py-1 rounded-lg block truncate">
-                        📄 {selectedFile.name}
+                      <span className="font-medium text-purple-300 bg-purple-950/40 border border-purple-800/30 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 truncate">
+                        <FileText className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                        <span className="truncate">{selectedFile.name}</span>
                       </span>
                     ) : (
                       <span className="text-[11px] text-[#687493]">Choose a document from your computer</span>
@@ -378,9 +380,16 @@ export default function DocumentKnowledgePage() {
                 <button
                   onClick={handleUpload}
                   disabled={!selectedFile || isUploading}
-                  className="w-full sm:w-auto mt-4 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-600/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full sm:w-auto mt-4 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-600/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  {isUploading ? 'Ingesting Document...' : 'Upload and Ingest 🚀'}
+                  {isUploading ? (
+                    'Ingesting Document...'
+                  ) : (
+                    <>
+                      <span>Upload and Ingest</span>
+                      <Upload className="w-3.5 h-3.5" />
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -526,9 +535,16 @@ export default function DocumentKnowledgePage() {
               <button
                 type="submit"
                 disabled={isTesting}
-                className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/20 transition cursor-pointer disabled:opacity-50"
+                className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/20 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
-                {isTesting ? 'Searching, Reranking & Expanding...' : 'Test Retrieval & Answer ⚡'}
+                {isTesting ? (
+                  'Searching, Reranking & Expanding...'
+                ) : (
+                  <>
+                    <span>Test Retrieval & Answer</span>
+                    <Zap className="w-3.5 h-3.5" />
+                  </>
+                )}
               </button>
             </form>
 
@@ -559,7 +575,7 @@ export default function DocumentKnowledgePage() {
                   <div className="bg-purple-950/20 border border-purple-500/30 p-3.5 rounded-xl space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px]">🕸️</span>
+                        <Network className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                         <span className="text-[9px] font-bold text-purple-300 uppercase tracking-wider">
                           Discovered Knowledge Graph Relations
                         </span>
@@ -578,7 +594,7 @@ export default function DocumentKnowledgePage() {
                             key={idx}
                             className="text-[10px] font-mono text-slate-200 bg-black/40 border border-white/[0.06] px-2.5 py-1 rounded-lg flex items-center gap-1.5"
                           >
-                            <span className="text-purple-400">🔗</span>
+                            <GitFork className="w-3 h-3 text-purple-400 shrink-0" />
                             <span>{rel.slice(2)}</span>
                           </div>
                         ))}
@@ -612,18 +628,22 @@ export default function DocumentKnowledgePage() {
                                 [{cit.index}] {cit.documentTitle}
                               </span>
                               {cit.initialRank && cit.initialRank !== cit.index && (
-                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40">
-                                  Pre-rank #{cit.initialRank} ➔ #{cit.index}
+                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40 inline-flex items-center gap-0.5">
+                                  <span>Pre-rank #{cit.initialRank}</span>
+                                  <ArrowRight className="w-2.5 h-2.5 text-indigo-400" />
+                                  <span>#{cit.index}</span>
                                 </span>
                               )}
                               {cit.isParentExpanded && (
-                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
-                                  🌲 Parent Expanded
+                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 inline-flex items-center gap-1">
+                                  <Layers className="w-2.5 h-2.5 text-emerald-400" />
+                                  <span>Parent Expanded</span>
                                 </span>
                               )}
                               {cit.isNeighborStitched && (
-                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/40">
-                                  🧵 Neighbor Stitched
+                                <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/40 inline-flex items-center gap-1">
+                                  <Workflow className="w-2.5 h-2.5 text-cyan-400" />
+                                  <span>Neighbor Stitched</span>
                                 </span>
                               )}
                             </div>

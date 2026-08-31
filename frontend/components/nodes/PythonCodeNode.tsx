@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
+import { X } from 'lucide-react';
 
 export default function PythonCodeNode({ id, data }: NodeProps) {
   const { setNodes, setEdges } = useReactFlow();
@@ -22,7 +23,7 @@ export default function PythonCodeNode({ id, data }: NodeProps) {
   let statusBadge = null;
 
   if (data.status === 'RUNNING') {
-    borderClass = 'border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.25)] animate-pulse';
+    borderClass = 'border-cyan-500/50 running-ring-cyan';
     statusBadge = <span className="text-[9px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 px-2 py-0.5 rounded animate-pulse font-mono uppercase tracking-wider">running</span>;
   } else if (data.status === 'COMPLETED') {
     borderClass = 'border-green-500/50 shadow-[0_0_10px_rgba(34,197,94,0.15)]';
@@ -45,10 +46,10 @@ export default function PythonCodeNode({ id, data }: NodeProps) {
           {badge}
           <button 
             onClick={handleDelete}
-            className="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs ml-1.5 p-0.5 rounded hover:bg-white/[0.04] leading-none"
+            className="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs ml-1.5 p-1 rounded-md hover:bg-white/[0.06] flex items-center justify-center"
             title="Delete Node"
           >
-            ✕
+            <X className="w-3 h-3" />
           </button>
         </div>
       </div>

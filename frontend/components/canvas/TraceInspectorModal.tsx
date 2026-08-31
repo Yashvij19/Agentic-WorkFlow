@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { Zap, BarChart3, Target, Layers, Network } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 
 interface TraceInspectorModalProps {
@@ -118,8 +119,9 @@ export default function TraceInspectorModal({
 
           <div className="flex items-center gap-3">
             {metrics?.latencyMs !== undefined && (
-              <span className="text-xs font-mono px-2.5 py-1 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 font-semibold">
-                ⚡ {metrics.latencyMs} ms
+              <span className="text-xs font-mono px-2.5 py-1 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 font-semibold flex items-center gap-1">
+                <Zap className="w-3.5 h-3.5 text-purple-400" />
+                <span>{metrics.latencyMs} ms</span>
               </span>
             )}
             <button
@@ -137,43 +139,47 @@ export default function TraceInspectorModal({
         <div className="flex border-b border-white/10 bg-[#070A17] px-6">
           <button
             onClick={() => setActiveTab('waterfall')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition ${
+            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition flex items-center gap-1.5 ${
               activeTab === 'waterfall'
                 ? 'border-purple-500 text-purple-400 bg-purple-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            📊 Latency Waterfall & Cost
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Latency Waterfall & Cost</span>
           </button>
           <button
             onClick={() => setActiveTab('query')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition ${
+            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition flex items-center gap-1.5 ${
               activeTab === 'query'
                 ? 'border-purple-500 text-purple-400 bg-purple-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            🎯 Query & Intent Analysis
+            <Target className="w-3.5 h-3.5" />
+            <span>Query & Intent Analysis</span>
           </button>
           <button
             onClick={() => setActiveTab('candidates')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition ${
+            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition flex items-center gap-1.5 ${
               activeTab === 'candidates'
                 ? 'border-purple-500 text-purple-400 bg-purple-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            🔄 Search & Rerank Matrix ({trace?.retrievedJson?.length || 0} Candidates)
+            <Layers className="w-3.5 h-3.5" />
+            <span>Search & Rerank Matrix ({trace?.retrievedJson?.length || 0} Candidates)</span>
           </button>
           <button
             onClick={() => setActiveTab('context')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition ${
+            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition flex items-center gap-1.5 ${
               activeTab === 'context'
                 ? 'border-purple-500 text-purple-400 bg-purple-500/5'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            🕸️ Context & Synthesized Answer
+            <Network className="w-3.5 h-3.5" />
+            <span>Context & Synthesized Answer</span>
           </button>
         </div>
 

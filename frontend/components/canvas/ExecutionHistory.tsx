@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { Activity } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 
 interface ExecutionHistoryProps {
@@ -186,10 +187,11 @@ export default function ExecutionHistory({
                           {onOpenTrace && (log.outputData?.result?.traceId || log.outputData?.result?.citations || log.nodeId?.includes('rag')) && (
                             <button
                               onClick={() => onOpenTrace(selectedRun.id, log.nodeId, log.outputData?.result?.traceId)}
-                              className="px-2 py-0.5 rounded text-[9px] font-bold font-mono bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition cursor-pointer flex items-center gap-1"
+                              className="px-2 py-0.5 rounded text-[9px] font-bold font-mono bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 transition cursor-pointer flex items-center gap-1.5"
                               title="Inspect RAG Telemetry Trace"
                             >
-                              📊 Trace
+                              <Activity className="w-2.5 h-2.5 text-purple-300" />
+                              <span>Trace</span>
                             </button>
                           )}
                         </div>
