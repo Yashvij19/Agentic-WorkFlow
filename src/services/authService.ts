@@ -204,4 +204,124 @@ export class AuthService{
         }
         return user;
     }
+
+    static async getProfile(userId: string) {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            include: {
+                organization: {
+                    select: {
+                        id: true,
+                        name: true,
+                        address: true
+                    }
+                }
+            }
+        });
+
+        if (!user) {
+            throw new Error("User not found.");
+        }
+
+        const permissions = (user.permissions ?? {}) as any;
+        let enrichedAllowedWorkflows: any[] = [];
+
+        if (Array.isArray(permissions.allowedWorkflowIds) && permissions.allowedWorkflowIds.length > 0) {
+            const ids = permissions.allowedWorkflowIds.map((item: any) => typeof item === 'string' ? item : item.workflowId).filter(Boolean);
+            const workflows = await prisma.workflow.findMany({
+                where: { id: { in: ids } },
+                select: { id: true, name: true, status: true }
+            });
+            const wfMap = new Map(workflows.map(w => [w.id, w]));
+
+            enrichedAllowedWorkflows = permissions.allowedWorkflowIds.map((item: any) => {
+                const wfId = typeof item === 'string' ? item : item.workflowId;
+                const wf = wfMap.get(wfId);
+                if (typeof item === 'string') {
+                    return {
+                        workflowId: wfId,
+                        workflowName: wf?.name || 'Untitled Workflow',
+                        canView: true,
+                        canExecute: false,
+                        canEdit: false,
+                        canRename: false,
+                        canDelete: false,
+                        canViewExecutionLogs: false,
+                    };
+                }
+                return {
+                    workflowId: item.workflowId,
+                    workflowName: wf?.name || 'Untitled Workflow',
+                    canView: item.canView !== false,
+                    canExecute: item.canExecute === true,
+                    canEdit: item.canEdit === true,
+                    canRename: item.canRename === true,
+                    canDelete: item.canDelete === true,
+                    canViewExecutionLogs: item.canViewExecutionLogs === true,
+                };
+            });
+        }
+
+        return {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            organizationId: user.organizationId,
+            organizationName: user.organization?.name || "Workspace",
+            permissions: {
+                ...permissions,
+                scopedWorkflows: enrichedAllowedWorkflows,
+            },
+            createdAt: user.createdAt
+        };
+    }
+
+    static async resetPassword(userId: string, oldPasswordPlain: string, newPasswordPlain: string) {
+        if (!newPasswordPlain || newPasswordPlain.length < 6) {
+            throw new Error("New password must be at least 6 characters.");
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+
+        if (!user) {
+            throw new Error("User not found.");
+        }
+
+        const isValid = verifyPassword(oldPasswordPlain, user.passwordHash);
+        if (!isValid) {
+            throw new Error("Incorrect current password.");
+        }
+
+        const newHash = hashPassword(newPasswordPlain);
+        await prisma.user.update({
+            where: { id: userId },
+            data: { passwordHash: newHash }
+        });
+
+        return { message: "Password updated successfully." };
+    }
+
+    static async forgotPassword(email: string, newPasswordPlain: string) {
+        if (!email || !newPasswordPlain || newPasswordPlain.length < 6) {
+            throw new Error("Valid email and a new password with at least 6 characters are required.");
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: email.toLowerCase().trim() }
+        });
+
+        if (!user) {
+            throw new Error("No account found with this email address.");
+        }
+
+        const newHash = hashPassword(newPasswordPlain);
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { passwordHash: newHash }
+        });
+
+        return { message: "Password has been reset successfully. You can now log in with your new password." };
+    }
 }

@@ -1,8 +1,9 @@
 // frontend/components/canvas/PropertiesPanel.tsx
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Zap, Search, Sliders, Activity, RotateCcw } from 'lucide-react';
+import { API_URL } from '../../utils/config';
 
 interface PropertiesPanelProps {
   selectedNode: any;
@@ -11,6 +12,7 @@ interface PropertiesPanelProps {
   onExecuteUpToNode: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   partialRunResult: string | null;
+  workflowStatus?: string;
   onOpenTraceModal?: (nodeId: string) => void;
   onReplayNode: (nodeId: string, resumeDownstream: boolean) => void; 
 }
@@ -22,9 +24,26 @@ export default function PropertiesPanel({
   onExecuteUpToNode,
   onDeleteNode,
   partialRunResult,
+  workflowStatus = 'ACTIVE',
   onOpenTraceModal,
   onReplayNode,
 }: PropertiesPanelProps) {
+  const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (selectedNode?.type === 'rag_query') {
+      const token = localStorage.getItem('token');
+      fetch(`${API_URL}/api/rag/knowledge-bases`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) setKnowledgeBases(data);
+        })
+        .catch(err => console.error(err));
+    }
+  }, [selectedNode?.type]);
+
   if (!selectedNode) return null;
 
   const { id, type, data } = selectedNode;
@@ -131,6 +150,74 @@ export default function PropertiesPanel({
         {/* RAG Knowledge Node Editor */}
         {type === 'rag_query' && (
           <div className="space-y-4">
+            {/* Knowledge Base Scope & Container Selector */}
+            <div>
+              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1.5 pl-1">
+                Knowledge Base Scope
+              </label>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUpdateNodeData(id, {
+                      ...data,
+                      knowledgeBaseScope: 'ORGANIZATION',
+                      knowledgeSourceId: '',
+                    });
+                  }}
+                  className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer ${
+                    (data.knowledgeBaseScope || 'ORGANIZATION') === 'ORGANIZATION'
+                      ? 'bg-violet-950/50 border-violet-500/50 text-violet-200 shadow-sm'
+                      : 'bg-black/20 border-white/5 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Organization
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUpdateNodeData(id, {
+                      ...data,
+                      knowledgeBaseScope: 'PERSONAL',
+                      knowledgeSourceId: '',
+                    });
+                  }}
+                  className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer ${
+                    data.knowledgeBaseScope === 'PERSONAL'
+                      ? 'bg-violet-950/50 border-violet-500/50 text-violet-200 shadow-sm'
+                      : 'bg-black/20 border-white/5 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Personal
+                </button>
+              </div>
+
+              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                Target Knowledge Base
+              </label>
+              <select
+                value={data.knowledgeSourceId || ''}
+                onChange={(e) =>
+                  onUpdateNodeData(id, {
+                    ...data,
+                    knowledgeSourceId: e.target.value,
+                  })
+                }
+                className="w-full px-3.5 py-2.5 bg-black/45 border border-white/10 rounded-xl text-xs text-white focus:border-violet-500/50 focus:outline-none transition cursor-pointer"
+              >
+                <option value="" className="bg-[#080D1D] text-slate-400">
+                  -- All {(data.knowledgeBaseScope || 'ORGANIZATION').toLowerCase()} Knowledge Bases --
+                </option>
+                {knowledgeBases
+                  .filter((kb) => kb.scope === (data.knowledgeBaseScope || 'ORGANIZATION'))
+                  .map((kb) => (
+                    <option key={kb.id} value={kb.id} className="bg-[#080D1D] text-slate-200">
+                      {kb.name} ({kb._count?.documents || 0} docs)
+                    </option>
+                  ))}
+              </select>
+            </div>
+
             <div>
               <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">Search Query / Prompt</label>
               <textarea
@@ -579,33 +666,62 @@ export default function PropertiesPanel({
         )}
 
         {/* Replay Node Actions Grid */}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => onReplayNode(id, false)}
-            className="py-2.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 hover:border-blue-500/50 text-blue-200 text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 shadow-md cursor-pointer flex items-center justify-center gap-1.5"
-            title="Run only this node using cached upstream data"
-          >
-            <Zap className="w-3.5 h-3.5 text-blue-300" />
-            <span>Run Step Only</span>
-          </button>
-          <button
-            onClick={() => onReplayNode(id, true)}
-            className="py-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-500/50 text-indigo-200 text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 shadow-md cursor-pointer flex items-center justify-center gap-1.5"
-            title="Replay from this node through all downstream children"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-indigo-300" />
-            <span>Replay From Here</span>
-          </button>
+        <div className="relative group/replay">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => onReplayNode(id, false)}
+              disabled={workflowStatus === 'PAUSED'}
+              className={`py-2.5 border text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 flex items-center justify-center gap-1.5 ${
+                workflowStatus === 'PAUSED'
+                  ? 'bg-slate-800/50 border-white/5 text-slate-500 cursor-not-allowed opacity-50'
+                  : 'bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/30 hover:border-blue-500/50 text-blue-200 shadow-md cursor-pointer'
+              }`}
+              title={workflowStatus === 'PAUSED' ? undefined : "Run only this node using cached upstream data"}
+            >
+              <Zap className="w-3.5 h-3.5 text-blue-300" />
+              <span>Run Step Only</span>
+            </button>
+            <button
+              onClick={() => onReplayNode(id, true)}
+              disabled={workflowStatus === 'PAUSED'}
+              className={`py-2.5 border text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 flex items-center justify-center gap-1.5 ${
+                workflowStatus === 'PAUSED'
+                  ? 'bg-slate-800/50 border-white/5 text-slate-500 cursor-not-allowed opacity-50'
+                  : 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/30 hover:border-indigo-500/50 text-indigo-200 shadow-md cursor-pointer'
+              }`}
+              title={workflowStatus === 'PAUSED' ? undefined : "Replay from this node through all downstream children"}
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-indigo-300" />
+              <span>Replay From Here</span>
+            </button>
+          </div>
+          {workflowStatus === 'PAUSED' && (
+            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-[#080D1D]/95 border border-amber-500/30 text-amber-200 text-[10px] font-medium px-3 py-1 rounded-xl shadow-2xl backdrop-blur-xl opacity-0 group-hover/replay:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              Workflow is in PAUSED state. Activate it to run.
+            </div>
+          )}
         </div>
 
 
         {/* Run Up to Node Action Button */}
-        <button
-          onClick={() => onExecuteUpToNode(id)}
-          className="w-full py-2.5 bg-white/[0.02] hover:bg-white/[0.06] border border-white/10 hover:border-white/20 text-white text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 shadow-md cursor-pointer"
-        >
-          Run Up To This Node
-        </button>
+        <div className="relative group/runupto">
+          <button
+            onClick={() => onExecuteUpToNode(id)}
+            disabled={workflowStatus === 'PAUSED'}
+            className={`w-full py-2.5 border text-[10px] font-bold tracking-wider uppercase rounded-xl transition duration-200 ${
+              workflowStatus === 'PAUSED'
+                ? 'bg-slate-800/50 border-white/5 text-slate-500 cursor-not-allowed opacity-50'
+                : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/10 hover:border-white/20 text-white shadow-md cursor-pointer'
+            }`}
+          >
+            Run Up To This Node
+          </button>
+          {workflowStatus === 'PAUSED' && (
+            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-[#080D1D]/95 border border-amber-500/30 text-amber-200 text-[10px] font-medium px-3 py-1 rounded-xl shadow-2xl backdrop-blur-xl opacity-0 group-hover/runupto:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+              Workflow is in PAUSED state. Activate it to run.
+            </div>
+          )}
+        </div>
 
         {/* Delete Node Button */}
         <button

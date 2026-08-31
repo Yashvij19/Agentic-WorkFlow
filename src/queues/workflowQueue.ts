@@ -17,33 +17,38 @@ export const workflowQueue = new Queue(WORKFLOW_QUEUE_NAME , {
 
 });
 
-export async function enqueWorkflowJob(executionId:string , workflowId:string , organizationId:string , targetNodeId?:string , resumeDownstream?: boolean,
-    isReplay?: boolean) {
-    
-    try{
-        const existingJob=await workflowQueue.getJob(executionId);
-
-        if(existingJob){
+export async function enqueWorkflowJob(
+    executionId: string, 
+    workflowId: string, 
+    organizationId: string, 
+    targetNodeId?: string, 
+    resumeDownstream?: boolean,
+    isReplay?: boolean,
+    triggeredByUserId?: string
+) {
+    try {
+        const existingJob = await workflowQueue.getJob(executionId);
+        if (existingJob) {
             await existingJob.remove();
             console.log(`🧹 [Queue] Removed existing job ${executionId} before re-enqueuing.`);
         }
-
-    }catch(err:any){
-         console.warn(`⚠️ [Queue] Error removing job ${executionId}:`, err.message);
+    } catch (err: any) {
+        console.warn(`⚠️ [Queue] Error removing job ${executionId}:`, err.message);
     }
 
     await workflowQueue.add(
-        `execute-${executionId}`,{
-              executionId, 
+        `execute-${executionId}`,
+        {
+            executionId, 
             workflowId, 
             organizationId, 
             targetNodeId,
             resumeDownstream,
-            isReplay
+            isReplay,
+            triggeredByUserId
         },
         {
-             jobId: executionId
+            jobId: executionId
         }
     );
-
 }

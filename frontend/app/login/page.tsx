@@ -4,16 +4,26 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, KeyRound, ArrowLeft, CheckCircle2, Lock } from 'lucide-react';
 import AutoCanvasVisual from '@/components/AutoCanvasVisual';
 import { API_URL } from '../../utils/config';
+import { useToast } from '@/context/ToastContext';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Forgot Password Modal State
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
   const router = useRouter();
+  const { toast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,11 +46,59 @@ export default function LoginPage() {
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
 
+      toast.success('Welcome back! Loading your dashboard...');
       router.push('/workflow');
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail || !forgotNewPassword) {
+      toast.warning('Please enter your email and new password.');
+      return;
+    }
+
+    if (forgotNewPassword.length < 6) {
+      toast.warning('New password must be at least 6 characters.');
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      toast.error('New password and confirmation do not match.');
+      return;
+    }
+
+    setIsResetting(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: forgotEmail,
+          newPassword: forgotNewPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to reset password.');
+      }
+
+      toast.success(data.message || 'Password reset successfully! You can now sign in.');
+      setIsForgotModalOpen(false);
+      setForgotEmail('');
+      setForgotNewPassword('');
+      setForgotConfirmPassword('');
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -113,9 +171,21 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                  Password
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotEmail(email);
+                      setIsForgotModalOpen(true);
+                    }}
+                    className="text-[11px] text-purple-400 hover:text-purple-300 font-medium transition cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <input
                   type="password"
                   required
@@ -138,13 +208,99 @@ export default function LoginPage() {
             <p className="text-center text-xs text-slate-400 mt-8">
               Don't have an account?{' '}
               <Link href="/register" className="text-purple-400 hover:text-purple-300 font-semibold transition-colors duration-200">
-                Create an organization account
+                Create an account
               </Link>
             </p>
           </div>
         </div>
 
       </div>
+
+      {/* Forgot Password Modal */}
+      {isForgotModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-[#080D1D] border border-white/10 rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-5 relative">
+            <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
+              <div className="flex items-center gap-2.5">
+                <KeyRound className="w-5 h-5 text-violet-400" />
+                <h3 className="text-base font-bold text-white">Reset Password</h3>
+              </div>
+              <button
+                onClick={() => setIsForgotModalOpen(false)}
+                className="text-slate-400 hover:text-white transition text-xs p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Enter your registered account email and set your new password.
+            </p>
+
+            <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Account Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  placeholder="name@organization.com"
+                  className="w-full px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 focus:border-violet-500/50 focus:outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={forgotNewPassword}
+                  onChange={(e) => setForgotNewPassword(e.target.value)}
+                  placeholder="Min 6 characters"
+                  className="w-full px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 focus:border-violet-500/50 focus:outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={forgotConfirmPassword}
+                  onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                  placeholder="Repeat new password"
+                  className="w-full px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 focus:border-violet-500/50 focus:outline-none transition"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsForgotModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResetting}
+                  className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-violet-500/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{isResetting ? 'Resetting...' : 'Reset Password'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

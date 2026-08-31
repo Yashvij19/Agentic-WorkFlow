@@ -6,6 +6,8 @@ import { RAGConfiguration, UseCaseProfile } from '../../services/rag/types';
 export interface RagNodeConfig {
   query?: string;
   mode?: 'simple' | 'advanced';
+  knowledgeBaseScope?: 'ORGANIZATION' | 'PERSONAL';
+  knowledgeSourceId?: string;
   useCaseProfile?: UseCaseProfile;
   ingestion?: any;
   retrieval?: any;
@@ -74,14 +76,21 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
       },
     };
 
-    // 3. Execute the RAG Pipeline
+    // 3. Execute the RAG Pipeline with Knowledge Base Isolation
+    const filters: Record<string, string> = {
+      ...(config?.metadataFilters || {}),
+    };
+    if (config?.knowledgeSourceId) {
+      filters.knowledgeSourceId = config.knowledgeSourceId;
+    }
+
     const ragResult = await this.ragEngine.execute({
       orgId: ctx.orgId,
       query: hydratedQuery,
       config: ragConfig,
       executionId: ctx.executionId,
       nodeId: ctx.nodeId,
-      metadataFilters: config?.metadataFilters,
+      metadataFilters: filters,
     });
 
     const durationMs = Date.now() - startTime;

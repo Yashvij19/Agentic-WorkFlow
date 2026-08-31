@@ -113,7 +113,7 @@ function resolveDownstreamNodes(startNodeId: string, edges: any[]): Set<string> 
 
 const processWorkflow = async (job: Job) => {
 
-   const { executionId, workflowId, organizationId, targetNodeId, resumeDownstream, isReplay } = job.data;
+   const { executionId, workflowId, organizationId, targetNodeId, resumeDownstream, isReplay, triggeredByUserId } = job.data;
 
   console.log(`\n👨‍🍳 [Worker] Picked up execution: ${executionId}`);
   console.log(`📂 [Worker] Workflow ID: ${workflowId} | Org ID: ${organizationId}`);
@@ -204,7 +204,7 @@ const processWorkflow = async (job: Job) => {
       console.log(`⏩ [Worker] Skipping '${node.id}' - Already completed in a previous run.`);
       continue;
     }
-    broadcastTelemetry(orgId, executionId,node.id, 'RUNNING', `Executing step: ${node.id}`);
+    broadcastTelemetry(orgId, executionId, node.id, 'RUNNING', `Executing step: ${node.id}`, undefined, triggeredByUserId);
    
     let stepResult: any = null;
 try{
@@ -238,7 +238,7 @@ try{
         workflowContext,
         credentials: credentialsMap,
         emitTelemetry: (status, message, data) => {
-          broadcastTelemetry(orgId, executionId, node.id, status, message, data);
+          broadcastTelemetry(orgId, executionId, node.id, status, message, data, triggeredByUserId);
         },
       };
 
@@ -268,7 +268,7 @@ try{
           outputData: { result: workflowContext[node.id] }
         }
       });
-      broadcastTelemetry(orgId, executionId, node.id, 'COMPLETED', `Step ${node.id} finished successfully.`);
+      broadcastTelemetry(orgId, executionId, node.id, 'COMPLETED', `Step ${node.id} finished successfully.`, undefined, triggeredByUserId);
 
       
     
@@ -283,7 +283,7 @@ try{
       outputData: { error: nodeError.message }
     }
   });
-  broadcastTelemetry(orgId, executionId, node.id, 'FAILED', `Step ${node.id} failed: ${nodeError.message}`);
+  broadcastTelemetry(orgId, executionId, node.id, 'FAILED', `Step ${node.id} failed: ${nodeError.message}`, undefined, triggeredByUserId);
   //  Mark entire run as FAILED in DB and abort
 
   await prisma.workflowExecution.update({
@@ -344,8 +344,8 @@ worker.on("failed", async (job, err) => {
   }
 });
 
-// Publishes status details, including the organizationId for multi-tenant websocket security
-function broadcastTelemetry(orgId: string, executionId: string, nodeId: string, status: string, message?: string, data?: any) {
+// Publishes status details, including the organizationId and triggeredByUserId for multi-tenant websocket security
+function broadcastTelemetry(orgId: string, executionId: string, nodeId: string, status: string, message?: string, data?: any, triggeredByUserId?: string) {
   const payload = JSON.stringify({
     organizationId: orgId,
     executionId,
@@ -353,6 +353,7 @@ function broadcastTelemetry(orgId: string, executionId: string, nodeId: string, 
     status,
     message,
     data,
+    triggeredByUserId,
     timeStamp: new Date().toISOString()
   });
   redisPublisher.publish('telemetry', payload);

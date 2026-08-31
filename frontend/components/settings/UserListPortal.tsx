@@ -15,6 +15,17 @@ interface User {
 interface Workflow {
   id: string;
   name: string;
+  createdByUserId?: string;
+}
+
+export interface WorkflowPermissionRule {
+  workflowId: string;
+  canView: boolean;
+  canEdit: boolean;
+  canRename: boolean;
+  canDelete: boolean;
+  canExecute: boolean;
+  canViewExecutionLogs: boolean;
 }
 
 interface UserListPortalProps {
@@ -31,12 +42,16 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
   // Edit Permissions Modal State
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [permCanCreate, setPermCanCreate] = useState(true);
-  const [permCanViewWorkflows, setPermCanViewWorkflows] = useState(true);
+  const [permCanViewWorkflows, setPermCanViewWorkflows] = useState(false);
+  const [permCanEditWorkflows, setPermCanEditWorkflows] = useState(false);
+  const [permCanRenameWorkflows, setPermCanRenameWorkflows] = useState(false);
   const [permCanDeleteWorkflows, setPermCanDeleteWorkflows] = useState(false);
-  const [permCanExecuteWorkflows, setPermCanExecuteWorkflows] = useState(true);
+  const [permCanExecuteWorkflows, setPermCanExecuteWorkflows] = useState(false);
   const [permCanViewExecutions, setPermCanViewExecutions] = useState(false);
   const [permCanViewFailed, setPermCanViewFailed] = useState(false);
-  const [permAllowedIds, setPermAllowedIds] = useState<string[]>([]);
+  const [permCanCreatePersonalKB, setPermCanCreatePersonalKB] = useState(false);
+  const [permCanChangeOrgKB, setPermCanChangeOrgKB] = useState(false);
+  const [permAllowedRules, setPermAllowedRules] = useState<WorkflowPermissionRule[]>([]);
   const [savingPermissions, setSavingPermissions] = useState(false);
 
   const loadData = async () => {
@@ -99,17 +114,67 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
 
     setEditingUser(user);
     setPermCanCreate(p.canCreateWorkflow !== false);
-    setPermCanViewWorkflows(p.canViewTeamWorkflows !== false);
+    setPermCanViewWorkflows(p.canViewTeamWorkflows === true);
+    setPermCanEditWorkflows(p.canEditTeamWorkflows === true);
+    setPermCanRenameWorkflows(p.canRenameTeamWorkflows === true);
     setPermCanDeleteWorkflows(p.canDeleteTeamWorkflows === true);
-    setPermCanExecuteWorkflows(p.canExecuteTeamWorkflows !== false);
+    setPermCanExecuteWorkflows(p.canExecuteTeamWorkflows === true);
     setPermCanViewExecutions(p.canViewTeamExecutions === true);
     setPermCanViewFailed(p.canViewTeamFailedExecutions === true);
-    setPermAllowedIds(p.allowedWorkflowIds || []);
+    setPermCanCreatePersonalKB(p.canCreatePersonalKnowledgeBase === true);
+    setPermCanChangeOrgKB(p.canChangeOrgKnowledgeBase === true);
+
+    // Normalize allowedWorkflowIds into WorkflowPermissionRule objects
+    const rawAllowed = Array.isArray(p.allowedWorkflowIds) ? p.allowedWorkflowIds : [];
+    const normalized: WorkflowPermissionRule[] = rawAllowed.map((item: any) => {
+      if (typeof item === 'string') {
+        return {
+          workflowId: item,
+          canView: true,
+          canEdit: false,
+          canRename: false,
+          canDelete: false,
+          canExecute: true,
+          canViewExecutionLogs: true,
+        };
+      }
+      return {
+        workflowId: item.workflowId,
+        canView: item.canView !== false,
+        canEdit: item.canEdit === true,
+        canRename: item.canRename === true,
+        canDelete: item.canDelete === true,
+        canExecute: item.canExecute !== false,
+        canViewExecutionLogs: item.canViewExecutionLogs !== false,
+      };
+    });
+    setPermAllowedRules(normalized);
   };
 
-  const toggleWorkflowId = (wfId: string) => {
-    setPermAllowedIds((prev) => 
-      prev.includes(wfId) ? prev.filter(id => id !== wfId) : [...prev, wfId]
+  const toggleWorkflowWhitelist = (wfId: string) => {
+    setPermAllowedRules((prev) => {
+      const exists = prev.find((r) => r.workflowId === wfId);
+      if (exists) {
+        return prev.filter((r) => r.workflowId !== wfId);
+      }
+      return [
+        ...prev,
+        {
+          workflowId: wfId,
+          canView: true,
+          canEdit: false,
+          canRename: false,
+          canDelete: false,
+          canExecute: true,
+          canViewExecutionLogs: true,
+        },
+      ];
+    });
+  };
+
+  const updateWorkflowRule = (wfId: string, field: keyof WorkflowPermissionRule, value: boolean) => {
+    setPermAllowedRules((prev) =>
+      prev.map((r) => (r.workflowId === wfId ? { ...r, [field]: value } : r))
     );
   };
 
@@ -124,11 +189,15 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
     const updatedPerms = {
       canCreateWorkflow: permCanCreate,
       canViewTeamWorkflows: permCanViewWorkflows,
+      canEditTeamWorkflows: permCanEditWorkflows,
+      canRenameTeamWorkflows: permCanRenameWorkflows,
       canDeleteTeamWorkflows: permCanDeleteWorkflows,
       canExecuteTeamWorkflows: permCanExecuteWorkflows,
       canViewTeamExecutions: permCanViewExecutions,
       canViewTeamFailedExecutions: permCanViewFailed,
-      allowedWorkflowIds: permAllowedIds
+      canCreatePersonalKnowledgeBase: permCanCreatePersonalKB,
+      canChangeOrgKnowledgeBase: permCanChangeOrgKB,
+      allowedWorkflowIds: permAllowedRules,
     };
 
     try {
@@ -264,8 +333,8 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
 
             <form onSubmit={handleSavePermissions} className="space-y-6">
               
-              {/* Checkbox Grids */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Global Permissions Checkboxes */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <label className="flex items-center gap-3 p-3 bg-black/25 rounded-xl border border-white/[0.03] hover:border-white/10 transition cursor-pointer">
                   <input
                     type="checkbox"
@@ -275,7 +344,7 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
                   />
                   <div>
                     <span className="block text-xs font-bold text-white">Can Create Workflows</span>
-                    <span className="text-[10px] text-slate-400 font-light">Allow building and saving new canvases.</span>
+                    <span className="text-[10px] text-slate-400 font-light">Build and save personal workflows.</span>
                   </div>
                 </label>
 
@@ -287,8 +356,34 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
                     className="accent-violet-500 w-4 h-4 cursor-pointer"
                   />
                   <div>
-                    <span className="block text-xs font-bold text-white">View Team Workflows</span>
-                    <span className="text-[10px] text-slate-400 font-light">See workflows built by other teammates.</span>
+                    <span className="block text-xs font-bold text-white">View All Team Workflows</span>
+                    <span className="text-[10px] text-slate-400 font-light">See workflows built by all teammates.</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 bg-black/25 rounded-xl border border-white/[0.03] hover:border-white/10 transition cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={permCanEditWorkflows}
+                    onChange={(e) => setPermCanEditWorkflows(e.target.checked)}
+                    className="accent-violet-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div>
+                    <span className="block text-xs font-bold text-white">Edit Team Blueprints</span>
+                    <span className="text-[10px] text-slate-400 font-light">Modify canvas schemas of other members.</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 bg-black/25 rounded-xl border border-white/[0.03] hover:border-white/10 transition cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={permCanRenameWorkflows}
+                    onChange={(e) => setPermCanRenameWorkflows(e.target.checked)}
+                    className="accent-violet-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div>
+                    <span className="block text-xs font-bold text-white">Rename Team Workflows</span>
+                    <span className="text-[10px] text-slate-400 font-light">Change names of other members' workflows.</span>
                   </div>
                 </label>
 
@@ -301,7 +396,7 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
                   />
                   <div>
                     <span className="block text-xs font-bold text-white">Execute Team Workflows</span>
-                    <span className="text-[10px] text-slate-400 font-light">Trigger runs on team workflows.</span>
+                    <span className="text-[10px] text-slate-400 font-light">Trigger runs on team workflows globally.</span>
                   </div>
                 </label>
 
@@ -314,7 +409,7 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
                   />
                   <div>
                     <span className="block text-xs font-bold text-white">Delete Team Workflows</span>
-                    <span className="text-[10px] text-slate-400 font-light">Permit deleting organization workflows.</span>
+                    <span className="text-[10px] text-slate-400 font-light">Delete organization workflows.</span>
                   </div>
                 </label>
 
@@ -326,8 +421,8 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
                     className="accent-violet-500 w-4 h-4 cursor-pointer"
                   />
                   <div>
-                    <span className="block text-xs font-bold text-white">View Team Runs</span>
-                    <span className="text-[10px] text-slate-400 font-light">Monitor real-time run logs and status of others.</span>
+                    <span className="block text-xs font-bold text-white">View Team Runs & Logs</span>
+                    <span className="text-[10px] text-slate-400 font-light">Monitor real-time run logs of other teammates.</span>
                   </div>
                 </label>
 
@@ -343,30 +438,123 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
                     <span className="text-[10px] text-slate-400 font-light">Inspect all organization failures in DLQ.</span>
                   </div>
                 </label>
+
+                {/* Knowledge Base RBAC Flags */}
+                <label className="flex items-center gap-3 p-3 bg-black/25 rounded-xl border border-white/[0.03] hover:border-white/10 transition cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={permCanCreatePersonalKB}
+                    onChange={(e) => setPermCanCreatePersonalKB(e.target.checked)}
+                    className="accent-violet-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div>
+                    <span className="block text-xs font-bold text-white">Create Personal Knowledge Bases</span>
+                    <span className="text-[10px] text-slate-400 font-light">Allow creating isolated personal knowledge bases.</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 bg-black/25 rounded-xl border border-white/[0.03] hover:border-white/10 transition cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={permCanChangeOrgKB}
+                    onChange={(e) => setPermCanChangeOrgKB(e.target.checked)}
+                    className="accent-violet-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div>
+                    <span className="block text-xs font-bold text-white">Modify Org Knowledge Base</span>
+                    <span className="text-[10px] text-slate-400 font-light">Allow uploading & deleting docs in Org KBs.</span>
+                  </div>
+                </label>
               </div>
 
-              {/* Workflow Access Restriction */}
-              <div className="space-y-2 border-t border-white/[0.04] pt-4">
-                <span className="block text-xs font-bold text-white pl-1">Restrict Access to Whitelisted Workflows</span>
-                <p className="text-[10px] text-slate-400 font-light pl-1">If no items checked, member retains global access inside organization.</p>
+              {/* Scoped Whitelist Workflow Matrix */}
+              <div className="space-y-3 border-t border-white/[0.06] pt-4">
+                <div>
+                  <span className="block text-xs font-bold text-white">Scoped Team Workflow Permissions</span>
+                  <p className="text-[10px] text-slate-400 font-light">
+                    Grant granular View, Edit, Rename, Delete, Execute, and Log access on specific team workflows. (User's own workflows are already fully accessible).
+                  </p>
+                </div>
 
-                {workflows.length === 0 ? (
-                  <div className="text-slate-500 text-xs italic pl-1 py-2">No workflows created in this organization yet.</div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-black/20 p-4 rounded-xl border border-white/[0.03] max-h-36 overflow-y-auto">
-                    {workflows.map((wf) => (
-                      <label key={wf.id} className="flex items-center gap-2.5 py-1 px-1.5 hover:bg-white/[0.02] rounded cursor-pointer text-xs">
-                        <input
-                          type="checkbox"
-                          checked={permAllowedIds.includes(wf.id)}
-                          onChange={() => toggleWorkflowId(wf.id)}
-                          className="accent-violet-500 cursor-pointer"
-                        />
-                        <span className="text-slate-300 font-medium truncate">{wf.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                {(() => {
+                  const teamWorkflows = workflows.filter((wf) => wf.createdByUserId !== editingUser.id);
+                  if (teamWorkflows.length === 0) {
+                    return (
+                      <div className="text-slate-500 text-xs italic bg-black/20 p-3.5 rounded-xl border border-white/[0.03]">
+                        No other team workflows available in this organization.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                      {teamWorkflows.map((wf) => {
+                        const rule = permAllowedRules.find((r) => r.workflowId === wf.id);
+                        const isWhitelisted = !!rule;
+
+                        return (
+                          <div
+                            key={wf.id}
+                            className={`p-3 rounded-xl border transition ${
+                              isWhitelisted
+                                ? 'bg-violet-950/15 border-violet-500/25'
+                                : 'bg-black/20 border-white/[0.03] hover:border-white/10'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <label className="flex items-center gap-2.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={isWhitelisted}
+                                  onChange={() => toggleWorkflowWhitelist(wf.id)}
+                                  className="accent-violet-500 w-4 h-4 cursor-pointer"
+                                />
+                                <span className="text-xs font-semibold text-white truncate max-w-[200px] sm:max-w-xs">{wf.name}</span>
+                              </label>
+
+                              {isWhitelisted && (
+                                <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-mono">
+                                  Configured
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Granular Action Pills */}
+                            {isWhitelisted && rule && (
+                              <div className="flex flex-wrap gap-2 mt-3 pt-2.5 border-t border-white/[0.04]">
+                                {[
+                                  { key: 'canView', label: 'View' },
+                                  { key: 'canExecute', label: 'Execute' },
+                                  { key: 'canEdit', label: 'Edit' },
+                                  { key: 'canRename', label: 'Rename' },
+                                  { key: 'canDelete', label: 'Delete' },
+                                  { key: 'canViewExecutionLogs', label: 'Logs' },
+                                ].map(({ key, label }) => {
+                                  const active = (rule as any)[key] === true;
+                                  return (
+                                    <button
+                                      key={key}
+                                      type="button"
+                                      onClick={() => updateWorkflowRule(wf.id, key as keyof WorkflowPermissionRule, !active)}
+                                      className={`px-2 py-1 rounded-md text-[10px] font-medium transition cursor-pointer border ${
+                                        active
+                                          ? 'bg-violet-600/30 text-violet-200 border-violet-500/40 shadow-sm'
+                                          : 'bg-black/30 text-slate-500 border-white/5 hover:text-slate-300'
+                                      }`}
+                                    >
+                                      {active ? '✓ ' : '+ '}
+                                      {label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Form Buttons */}

@@ -28,6 +28,9 @@ export class VectorStore {
         if (filters && filters.documentId) {
             whereClause.documentId = filters.documentId;
         }
+        if (filters && filters.knowledgeSourceId) {
+            whereClause.document = { knowledgeSourceId: filters.knowledgeSourceId };
+        }
         const dbChunks = await prisma.chunk.findMany({
             where: whereClause,
             include: {
@@ -165,7 +168,10 @@ export class VectorStore {
         };
 
         if (filters && filters.documentId) {
-            whereClause.documentId = filters.documentId
+            whereClause.documentId = filters.documentId;
+        }
+        if (filters && filters.knowledgeSourceId) {
+            whereClause.document = { knowledgeSourceId: filters.knowledgeSourceId };
         }
 
         const dbChunks = await prisma.chunk.findMany({

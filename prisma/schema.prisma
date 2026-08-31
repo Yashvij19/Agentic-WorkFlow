@@ -62,6 +62,7 @@ model User {
 
   createdWorkflows  Workflow[]
   triggeredExecutions WorkflowExecution[]
+  createdKnowledgeSources KnowledgeSource[]
 }
 
 
@@ -172,15 +173,21 @@ model ExecutionLog {
 }
 
 model KnowledgeSource{
-  id  String  @id @default(uuid())
-  name  String
-  type  String   // e.g. "FILE", "URL", "TEXT"
-  status  String  // "PENDING", "PROCESSED", "FAILED"
-  organizationId  String
-  organization  Organization  @relation(fields:[organizationId] , references:[id] , onDelete:Cascade)
-  documents Document[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                String       @id @default(uuid())
+  name              String
+  description       String?
+  type              String       @default("FILE") // "FILE", "URL", "TEXT"
+  scope             String       @default("ORGANIZATION") // "ORGANIZATION" or "PERSONAL"
+  status            String       @default("PROCESSED")  // "PENDING", "PROCESSED", "FAILED"
+  organizationId    String
+  organization      Organization @relation(fields:[organizationId] , references:[id] , onDelete:Cascade)
+  createdByUserId   String?
+  createdByUser     User?        @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  documents         Document[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([organizationId, name, scope, createdByUserId])
 }
 
 model Document{

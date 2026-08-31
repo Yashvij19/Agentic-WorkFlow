@@ -3,7 +3,7 @@
 
 import React, { useCallback, useMemo, useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { CheckCircle2, AlertTriangle, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, X, Play, Pause } from 'lucide-react';
 import { API_URL, WS_URL } from '../../../utils/config';
 import ReactFlow, {
   Background,
@@ -34,6 +34,15 @@ import TraceInspectorModal from '../../../components/canvas/TraceInspectorModal'
 import CustomCodeNode from '../../../components/nodes/CustomCodeNode';
 import PythonCodeNode from '../../../components/nodes/PythonCodeNode';
 
+// Static Node Types Registration outside component (avoids re-creation warning)
+const nodeTypes = {
+  input: TriggerNode,
+  agent: AgentNode,
+  api: ApiNode,
+  rag_query: RagNode,
+  custom_code: CustomCodeNode,
+  python_code: PythonCodeNode,
+};
 
 export default function WorkflowWorkspace() {
   const { id } = useParams() as { id: string };
@@ -50,6 +59,11 @@ export default function WorkflowWorkspace() {
   // Custom sidebar config states
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState('Loading...');
+  const [workflowStatus, setWorkflowStatus] = useState<'ACTIVE' | 'PAUSED' | 'DRAFT'>('ACTIVE');
+  const [workflowCreatorId, setWorkflowCreatorId] = useState<string | null>(null);
+  const [userPermissions, setUserPermissions] = useState<any>({ canEdit: true, canExecute: true, canRename: true, canDelete: true });
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionMessage, setExecutionMessage] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -98,29 +112,30 @@ export default function WorkflowWorkspace() {
     }
   }, []);
 
-  // Register Custom Node Types
-   const nodeTypes = useMemo(() => ({
-    input: TriggerNode,
-    agent: AgentNode,
-    api: ApiNode,
-    rag_query: RagNode,
-    custom_code: CustomCodeNode,
-    python_code: PythonCodeNode,
-  }), []);
-
-
   // Compute selectedNode object helper
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null;
     return nodes.find(n => n.id === selectedNodeId) || null;
   }, [selectedNodeId, nodes]);
 
-  // 1. Fetch Workflow blueprint
+  // 1. Fetch Workflow blueprint and user session
   useEffect(() => {
     const token = localStorage.getItem('token');
+    const userStr = localStorage.getItem('user');
+
     if (!token) {
       router.push('/login');
       return;
+    }
+
+    if (userStr) {
+      try {
+        const parsed = JSON.parse(userStr);
+        setUserRole(parsed.role);
+        setCurrentUserId(parsed.id || parsed.userId || null);
+      } catch (err) {
+        console.error(err);
+      }
     }
 
     fetch(`${API_URL}/api/workflow/${id}`, {
@@ -132,6 +147,11 @@ export default function WorkflowWorkspace() {
       })
       .then((data) => {
         setWorkflowName(data.name);
+        setWorkflowStatus(data.status || 'ACTIVE');
+        setWorkflowCreatorId(data.createdByUserId || null);
+        if (data.userPermissions) {
+          setUserPermissions(data.userPermissions);
+        }
         setNodes(data.nodesJson || []);
         setEdges(data.dagJson || []);
       })
@@ -140,6 +160,30 @@ export default function WorkflowWorkspace() {
         setWorkflowName('Error loading');
       });
   }, [id, router, setNodes, setEdges]);
+
+  // Status toggle handler
+  const handleToggleStatus = async (newStatus: 'ACTIVE' | 'PAUSED') => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/workflow/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update workflow status.');
+
+      setWorkflowStatus(newStatus);
+      showToast(data.message || `Workflow is now ${newStatus}.`, 'success');
+    } catch (err: any) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const canToggleStatus = userRole === 'ADMIN' || userRole === 'SINGLE' || workflowCreatorId === currentUserId;
 
   // 2. Telemetry WebSockets receiver
   useEffect(() => {
@@ -195,7 +239,8 @@ export default function WorkflowWorkspace() {
                 const res = await fetch(`${API_URL}/api/workflow/${id}/executions`, {
                   headers: { Authorization: `Bearer ${tok}` }
                 });
-                const executions = await res.json();
+                const raw = await res.json();
+                const executions = Array.isArray(raw) ? raw : (raw.executions || []);
                 if (Array.isArray(executions)) {
                   const run = executions.find((e: any) => e.id === runId);
                   if (run && Array.isArray(run.logs)) {
@@ -259,8 +304,16 @@ export default function WorkflowWorkspace() {
 
   // 6. Save Canvas Blueprint
   const handleSave = async (silent: boolean | any = false) => {
-      // If React passes a MouseEvent object from onClick, treat it as silent = false
     const isSilent = typeof silent === 'boolean' ? silent : false;
+
+    // If user does not have permission to edit this blueprint, skip save
+    if (userPermissions && userPermissions.canEdit === false) {
+      if (!isSilent) {
+        showToast('Read-Only: You do not have permission to edit this team workflow.', 'error');
+      }
+      return false;
+    }
+
     const token = localStorage.getItem('token');
     try {
       const res = await fetch(`${API_URL}/api/workflow/${id}`, {
@@ -278,12 +331,12 @@ export default function WorkflowWorkspace() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed saving workflow.');
-      if (!silent) {
+      if (!isSilent) {
         showToast(data.message || 'Workflow blueprint saved successfully!', 'success');
       }
       return true;
     } catch (err: any) {
-      if (!silent) {
+      if (!isSilent) {
         showToast(`Save error: ${err.message}`, 'error');
       }
       console.error('Auto-save error:', err.message);
@@ -294,11 +347,17 @@ export default function WorkflowWorkspace() {
   // 7. Trigger full execution
   const handleExecute = async () => {
     setIsExecuting(true);
-    setExecutionMessage('Auto-saving canvas & pushing job to queue...');
+    setExecutionMessage(
+      userPermissions?.canEdit !== false
+        ? 'Auto-saving canvas & pushing job to queue...'
+        : 'Pushing execution job to queue...'
+    );
     const token = localStorage.getItem('token');
 
-    // 1. Auto-save latest canvas state to database so the worker gets the exact nodes & query
-    await handleSave(true);
+    // 1. Only auto-save latest canvas state if user has edit permission
+    if (userPermissions?.canEdit !== false) {
+      await handleSave(true);
+    }
 
     // Reset nodes to PENDING status visually
     setNodes((currentNodes) =>
@@ -311,9 +370,10 @@ export default function WorkflowWorkspace() {
     try {
       const res = await fetch(`${API_URL}/api/workflow/${id}/execute`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`,
-         'idempotency-key': idempotencyKeyRef.current // ADDED THIS HEADER
-       },
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'idempotency-key': idempotencyKeyRef.current
+        },
       });
 
       const data = await res.json();
@@ -323,9 +383,7 @@ export default function WorkflowWorkspace() {
     } catch (err: any) {
       setExecutionMessage(`Failed: ${err.message}`);
       setIsExecuting(false);
-    }
-    finally {
-      
+    } finally {
       idempotencyKeyRef.current = crypto.randomUUID();
     }
   };
@@ -333,12 +391,18 @@ export default function WorkflowWorkspace() {
   // 7.1 Trigger partial execution up to a selected node
   const handleExecuteUpToNode = async (nodeId: string) => {
     setIsExecuting(true);
-    setExecutionMessage(`Auto-saving canvas & queuing partial run up to ${nodeId}...`);
+    setExecutionMessage(
+      userPermissions?.canEdit !== false
+        ? `Auto-saving canvas & queuing partial run up to ${nodeId}...`
+        : `Queuing partial run up to ${nodeId}...`
+    );
     setPartialRunResult(null); // Reset previous outputs
     const token = localStorage.getItem('token');
 
-    // 1. Auto-save latest canvas state to database so worker finds this node and updated query!
-    await handleSave(true);
+    // 1. Auto-save latest canvas state only if user has edit permissions
+    if (userPermissions?.canEdit !== false) {
+      await handleSave(true);
+    }
 
     // Reset target node status to PENDING visually
     setNodes((currentNodes) =>
@@ -354,8 +418,7 @@ export default function WorkflowWorkspace() {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
-           'idempotency-key': idempotencyKeyRef.current 
-
+          'idempotency-key': idempotencyKeyRef.current 
         },
         body: JSON.stringify({ nodeId })
       });
@@ -369,14 +432,13 @@ export default function WorkflowWorkspace() {
     } catch (err: any) {
       setExecutionMessage(`Failed: ${err.message}`);
       setIsExecuting(false);
-    }
-    finally {
-      //  Refresh the key so the NEXT run gets a fresh UUID
+    } finally {
+      // Refresh the key so the NEXT run gets a fresh UUID
       idempotencyKeyRef.current = crypto.randomUUID();
     }
   };
 
-    // 7.2 Trigger workflow execution replay starting from a specific node
+  // 7.2 Trigger workflow execution replay starting from a specific node
   const handleReplayNode = async (nodeId: string, resumeDownstream: boolean) => {
     const token = localStorage.getItem('token');
     
@@ -386,7 +448,8 @@ export default function WorkflowWorkspace() {
       const histRes = await fetch(`${API_URL}/api/workflow/${id}/executions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const history = await histRes.json();
+      const raw = await histRes.json();
+      const history = Array.isArray(raw) ? raw : (raw.executions || []);
       if (Array.isArray(history) && history.length > 0) {
         // history is ordered descending, index 0 is the latest run
         executionId = history[0].id;
@@ -407,8 +470,10 @@ export default function WorkflowWorkspace() {
     );
     setPartialRunResult(null); // Reset output box
 
-    // Auto-save canvas schema first
-    await handleSave(true);
+    // Auto-save canvas schema first if allowed
+    if (userPermissions?.canEdit !== false) {
+      await handleSave(true);
+    }
 
     // Compute which nodes to reset visually back to PENDING on the canvas
     const nodesToReset = new Set<string>();
@@ -534,9 +599,32 @@ export default function WorkflowWorkspace() {
         title={workflowName}
         isExecuting={isExecuting}
         executionMessage={executionMessage}
+        workflowStatus={workflowStatus}
+        canToggleStatus={canToggleStatus}
+        canEdit={userPermissions?.canEdit !== false}
+        onToggleStatus={handleToggleStatus}
         onSave={() => handleSave(false)} // Pass explicit false!
         onExecute={handleExecute}
       />
+
+      {/* Top Banner Notice when Workflow is PAUSED */}
+      {workflowStatus === 'PAUSED' && (
+        <div className="bg-gradient-to-r from-amber-950/70 via-amber-900/40 to-amber-950/70 border-b border-amber-500/30 px-6 py-2 flex items-center justify-between backdrop-blur-md z-20">
+          <div className="flex items-center gap-2 text-xs font-medium text-amber-200">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Workflow is currently <strong>PAUSED</strong>. Executions, partial runs, and step replays are locked.</span>
+          </div>
+          {canToggleStatus && (
+            <button
+              onClick={() => handleToggleStatus('ACTIVE')}
+              className="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+            >
+              <Play className="w-3 h-3 text-emerald-400" />
+              <span>Activate Workflow</span>
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-grow w-full overflow-hidden relative pb-10">
         {/* 2. Left Drag and Drop Palette / Collapsible Sidebar */}
@@ -598,6 +686,7 @@ export default function WorkflowWorkspace() {
             onExecuteUpToNode={handleExecuteUpToNode}
             onDeleteNode={handleDeleteNode}
             partialRunResult={partialRunResult}
+            workflowStatus={workflowStatus}
             onOpenTraceModal={(nodeId) => setTraceModal({ isOpen: true, nodeId, executionId: null, traceId: null })}
             onReplayNode={handleReplayNode}
           />
