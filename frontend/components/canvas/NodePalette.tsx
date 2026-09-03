@@ -213,6 +213,25 @@ export default function NodePalette({
               </div>
             </div>
 
+            {/* ForEach Array Iterator Node Draggability */}
+            <div
+              draggable
+              onDragStart={(e) => onDragStart(e, 'foreach')}
+              className="flex items-center gap-3 p-3 bg-black/40 border border-teal-500/15 hover:border-teal-500/40 rounded-xl cursor-grab active:cursor-grabbing transition duration-200 group"
+              title="Drag ForEach Array Iterator Node"
+            >
+              <div className="w-5 h-5 rounded bg-teal-500/20 text-teal-300 flex items-center justify-center font-mono font-bold text-[11px] shrink-0 border border-teal-500/30 group-hover:scale-110 transition-transform">
+                🔄
+              </div>
+              <div className="text-left leading-tight">
+                <h4 className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                  ForEach Loop
+                  <span className="text-[8px] bg-teal-950 text-teal-400 border border-teal-800/40 px-1 py-0.2 rounded">Batch</span>
+                </h4>
+                <p className="text-[9px] text-[#687493] font-light">Array batch iterator</p>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>

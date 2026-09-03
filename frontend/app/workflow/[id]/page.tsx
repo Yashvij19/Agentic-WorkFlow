@@ -33,6 +33,7 @@ import TraceInspectorModal from '../../../components/canvas/TraceInspectorModal'
 
 import CustomCodeNode from '../../../components/nodes/CustomCodeNode';
 import PythonCodeNode from '../../../components/nodes/PythonCodeNode';
+import ForEachNode from '../../../components/nodes/ForEachNode';
 
 // Static Node Types Registration outside component (avoids re-creation warning)
 const nodeTypes = {
@@ -42,6 +43,7 @@ const nodeTypes = {
   rag_query: RagNode,
   custom_code: CustomCodeNode,
   python_code: PythonCodeNode,
+  foreach: ForEachNode,
 };
 
 export default function WorkflowWorkspace() {
@@ -583,6 +585,11 @@ export default function WorkflowWorkspace() {
             ? `def main(inputs, context):\n    # Access inputs or context['nodeId']\n    print("Processing inputs:", inputs)\n    return inputs`
             : undefined,
           timeoutMs: (type === 'custom_code' || type === 'python_code') ? 10000 : undefined,
+          arrayPath: type === 'foreach' ? '{{api_1.output.items}}' : undefined,
+          concurrency: type === 'foreach' ? 2 : undefined,
+          continueOnError: type === 'foreach' ? true : undefined,
+          itemAlias: type === 'foreach' ? '$item' : undefined,
+          indexAlias: type === 'foreach' ? '$index' : undefined,
         },
       };
 

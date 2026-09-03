@@ -465,6 +465,23 @@ const ARCHITECTURE_NODES: Record<string, ArchitectureNode> = {
     ],
     categoryColor: 'purple'
   },
+  'node-foreach': {
+    id: 'node-foreach',
+    name: 'ForEachIteratorNode',
+    subtitle: '(Dynamic Array Batcher)',
+    icon: RefreshCw,
+    layerIndex: 5,
+    layerName: 'NODE PLUGIN ECOSYSTEM LAYER',
+    techStack: 'Async Worker Pool • Sub-Graph Scoping',
+    protocol: 'Dual-Handle Fan-Out / Fan-In',
+    description: 'Iterates over arrays with controlled concurrency (1-20), scoped memory sandboxing, and real-time progress telemetry.',
+    specifications: [
+      'Dual-handle routing: Loop (item branch) and Done (aggregated results)',
+      'Zero-dependency pure TypeScript worker pool concurrency algorithm',
+      'Defensive safety limits (500-item cap) & configurable error tolerance'
+    ],
+    categoryColor: 'purple'
+  },
 
   // Layer 6: Advanced RAG Subsystem Layer
   'rag-markitdown': {

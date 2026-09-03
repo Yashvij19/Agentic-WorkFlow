@@ -551,9 +551,9 @@ export default function PropertiesPanel({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-[9px] font-bold text-cyan-400 uppercase tracking-widest pl-1">
-                  Python Script (3.x)
+                  Python Script (v3)
                 </label>
-                <span className="text-[9px] text-[#687493] font-mono">Python Runtime</span>
+                <span className="text-[9px] text-[#687493] font-mono">Isolated Subprocess</span>
               </div>
               
               <textarea
@@ -561,7 +561,7 @@ export default function PropertiesPanel({
                 value={data.code || ''}
                 onChange={(e) => onUpdateNodeData(id, { ...data, code: e.target.value })}
                 className="w-full p-3 bg-black/60 border border-cyan-500/20 focus:border-cyan-500/50 rounded-xl text-xs font-mono text-cyan-200/90 leading-relaxed outline-none transition resize-y"
-                placeholder="def main(inputs, context):\n    return inputs"
+                placeholder="def main(inputs, context): ... return result"
                 spellCheck={false}
               />
             </div>
@@ -577,13 +577,13 @@ export default function PropertiesPanel({
                   onClick={() =>
                     onUpdateNodeData(id, {
                       ...data,
-                      code: `def main(inputs, context):\n    # Process text or list\n    print("Running Python processor...")\n    return {\n        "processed": True,\n        "keys": list(inputs.keys())\n    }`,
+                      code: `def main(inputs, context):\n    # Python data transformation\n    import json\n    items = inputs if isinstance(inputs, list) else [inputs]\n    return {"count": len(items), "processed": True}`,
                     })
                   }
                   className="py-1.5 px-2 bg-black/30 hover:bg-cyan-500/10 border border-white/5 hover:border-cyan-500/30 rounded-lg text-[10px] text-slate-300 hover:text-cyan-200 transition cursor-pointer text-left flex items-center gap-1.5"
                 >
-                  <Sliders className="w-3 h-3 text-cyan-400 shrink-0" />
-                  <span>Text/Data Filter</span>
+                  <Zap className="w-3 h-3 text-cyan-400 shrink-0" />
+                  <span>List Process</span>
                 </button>
                 <button
                   type="button"
@@ -626,6 +626,108 @@ export default function PropertiesPanel({
               </span>
               <p><code className="text-cyan-300 font-mono">def main(inputs, context):</code></p>
               <p className="text-[9px] text-[#687493]">All <code className="text-slate-300 font-mono">print()</code> calls are captured in live telemetry logs!</p>
+            </div>
+          </div>
+        )}
+
+        {/* ForEach Array Iterator Node Editor */}
+        {type === 'foreach' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[9px] font-bold text-teal-400 uppercase tracking-widest mb-1.5 pl-1">
+                Target Array Path
+              </label>
+              <input
+                type="text"
+                value={data.arrayPath || ''}
+                onChange={(e) => onUpdateNodeData(id, { ...data, arrayPath: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-black/60 border border-teal-500/20 focus:border-teal-500/50 rounded-xl text-xs font-mono text-teal-200 outline-none transition"
+                placeholder="{{api_1.output.items}} or api_1.items"
+              />
+              <p className="text-[9px] text-[#687493] mt-1 pl-1">
+                Variable path or JSON path to the array in upstream memory. Leave empty to auto-detect from direct inputs.
+              </p>
+            </div>
+
+            {/* Concurrency Slider */}
+            <div>
+              <div className="flex justify-between items-center mb-1.5 pl-1">
+                <label className="text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest">
+                  Concurrency Limit: {data.concurrency || 1}
+                </label>
+                <span className="text-[9px] text-teal-400 font-mono">
+                  {(data.concurrency || 1) === 1 ? 'Sequential (1x)' : `${data.concurrency} parallel`}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value={data.concurrency || 1}
+                onChange={(e) => onUpdateNodeData(id, { ...data, concurrency: Number(e.target.value) })}
+                className="w-full accent-teal-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer"
+              />
+              <div className="flex justify-between text-[8px] text-[#687493] font-mono mt-1 px-1">
+                <span>1 (Safe)</span>
+                <span>5 (Fast)</span>
+                <span>10 (Max)</span>
+              </div>
+            </div>
+
+            {/* Error Tolerance Toggle */}
+            <div className="p-3 bg-black/40 rounded-xl border border-white/5 flex items-center justify-between">
+              <div>
+                <span className="block text-xs font-semibold text-slate-200">Continue on Error</span>
+                <span className="block text-[9px] text-[#687493]">Keep processing remaining items if one fails</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={data.continueOnError !== false}
+                onChange={(e) => onUpdateNodeData(id, { ...data, continueOnError: e.target.checked })}
+                className="w-4 h-4 accent-teal-500 cursor-pointer rounded"
+              />
+            </div>
+
+            {/* Aliases Grid */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                  Item Alias
+                </label>
+                <input
+                  type="text"
+                  value={data.itemAlias || '$item'}
+                  onChange={(e) => onUpdateNodeData(id, { ...data, itemAlias: e.target.value })}
+                  className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-xs font-mono text-slate-200 outline-none"
+                  placeholder="$item"
+                />
+              </div>
+              <div>
+                <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                  Index Alias
+                </label>
+                <input
+                  type="text"
+                  value={data.indexAlias || '$index'}
+                  onChange={(e) => onUpdateNodeData(id, { ...data, indexAlias: e.target.value })}
+                  className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-xs font-mono text-slate-200 outline-none"
+                  placeholder="$index"
+                />
+              </div>
+            </div>
+
+            {/* Dual Handle Routing Guide */}
+            <div className="p-3 bg-teal-950/20 rounded-xl border border-teal-500/20 text-[10px] text-[#98A4C2] space-y-1.5">
+              <span className="font-bold text-teal-300 block text-[9px] uppercase tracking-wider">
+                Output Handle Routing Guide:
+              </span>
+              <p className="flex items-center gap-1.5 text-slate-300">
+                <span className="text-teal-400 font-bold">🔄 Loop:</span> Connect to steps that run for <em>each</em> item.
+              </p>
+              <p className="flex items-center gap-1.5 text-slate-300">
+                <span className="text-indigo-400 font-bold">🏁 Done:</span> Connect to steps that run <em>once</em> after all items finish.
+              </p>
             </div>
           </div>
         )}
