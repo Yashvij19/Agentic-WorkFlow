@@ -9,6 +9,7 @@ import { API_URL } from '../../utils/config';
 import { canAccessDLQ } from '../../utils/permissions';
 import UserProfileDropdown from '../../components/profile/UserProfileDropdown';
 import { useToast } from '@/context/ToastContext';
+import AetherFlowLogo from '@/components/AetherFlowLogo';
 
 export default function WorkflowsDashboard() {
   const { toast } = useToast();
@@ -366,8 +367,8 @@ export default function WorkflowsDashboard() {
           <div className="flex items-center gap-10">
             {/* Logo */}
             <div className="flex items-center gap-2.5">
-              <Link href="/" className="font-bold tracking-tight text-white text-base hover:text-slate-200 transition-colors duration-200">
-                FlowAgent
+              <Link href="/" className="flex items-center gap-2 group">
+                <AetherFlowLogo size={26} showText textSize="text-base" />
               </Link>
             </div>
             

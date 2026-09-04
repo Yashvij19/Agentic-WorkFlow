@@ -14,7 +14,7 @@ export const workflowQueue = new Queue(WORKFLOW_QUEUE_NAME , {
     removeOnComplete:true, // Keep Redis clean by removing successful jobs
     removeOnFail: {
         count: 1000, // Retain at most 1,000 failed jobs in Redis RAM to prevent memory overflow
-        age: 3 * 24 * 3600 // Auto-expire failed jobs from Redis cache after 7 days (Postgres keeps permanent history)
+        age: 3 * 24 * 3600 // Auto-expire failed jobs from Redis cache after 3 days (Postgres keeps permanent history)
     }
    },
 

@@ -61,7 +61,7 @@ const ARCHITECTURE_NODES: Record<string, ArchitectureNode> = {
     layerName: 'CLIENT & PRESENTATION LAYER',
     techStack: 'Next.js 15 App Router • Tailwind CSS • HTML5 Canvas',
     protocol: 'HTTPS / WSS',
-    description: 'High-performance scroll-driven Z-axis visual spatial canvas introducing the FlowAgent ecosystem.',
+    description: 'High-performance scroll-driven Z-axis visual spatial canvas introducing the AetherFlow ecosystem.',
     specifications: [
       'Scroll-driven canvas frame interpolation (60 FPS)',
       'Spatial glassmorphism with dynamic backdrop filters',
@@ -135,6 +135,24 @@ const ARCHITECTURE_NODES: Record<string, ArchitectureNode> = {
       'Heartbeat keepalive with auto-reconnection',
       'Tenant-isolated event stream filtering by Organization ID',
       'Real-time execution drawer showing live node duration & stdout'
+    ],
+    categoryColor: 'purple'
+  },
+  'client-dlq': {
+    id: 'client-dlq',
+    name: 'Dead Letter Queue',
+    subtitle: '(Forensics & Replay)',
+    icon: RefreshCw,
+    layerIndex: 1,
+    layerName: 'CLIENT & PRESENTATION LAYER',
+    techStack: 'Next.js 15 • Server-Side Pagination • RBAC Guard',
+    protocol: 'REST / WebSocket',
+    description: 'Centralized forensic console for diagnosing failed workflow executions, inspecting error payloads, and triggering sub-graph replays.',
+    specifications: [
+      'Server-side paginated list with real-time search & filter pills',
+      'One-click execution replay starting from failed checkpoint',
+      'Step-by-step node execution log drawer with JSON output inspector',
+      'Dual-layer RBAC protection (Single, Admin, Member clearance)'
     ],
     categoryColor: 'purple'
   },
@@ -364,17 +382,18 @@ const ARCHITECTURE_NODES: Record<string, ArchitectureNode> = {
   'worker-dlq': {
     id: 'worker-dlq',
     name: 'Dead Letter Queue',
-    subtitle: '(DLQ) & Failure Recovery',
+    subtitle: '(DLQ) & Resilience Engine',
     icon: RefreshCw,
     layerIndex: 4,
     layerName: 'ASYNC WORKER & QUEUE ENGINE LAYER',
-    techStack: 'BullMQ DLQ • Automated Retries',
-    protocol: 'Retry & Failure Handling',
-    description: 'Resilient error recovery system handling transient API failures and routing exhausted jobs to DLQ storage.',
+    techStack: 'BullMQ DLQ • UnrecoverableError • Redis Bounded Cache',
+    protocol: 'Retry, Fail-Fast & Eviction Protocol',
+    description: 'Resilient fault isolation system distinguishing transient network retries from unrecoverable client errors, backed by bounded Redis memory.',
     specifications: [
-      '3 automated retries with exponential backoff',
-      'Database status update to FAILED upon permanent failure',
-      'Comprehensive error log recording for forensic debugging'
+      'Transient retries: 3 attempts with exponential backoff (2s, 4s, 8s)',
+      'Fail-fast abort: Bypasses retries on missing credentials, 401/404, or syntax errors via UnrecoverableError',
+      'Bounded Redis memory: auto-prunes failed jobs (max 1,000 / 7 days TTL) to eliminate Redis OOM crashes',
+      'On-demand Admin purge API: clears failed cache entries without losing PostgreSQL history'
     ],
     categoryColor: 'amber'
   },
@@ -479,6 +498,24 @@ const ARCHITECTURE_NODES: Record<string, ArchitectureNode> = {
       'Dual-handle routing: Loop (item branch) and Done (aggregated results)',
       'Zero-dependency pure TypeScript worker pool concurrency algorithm',
       'Defensive safety limits (500-item cap) & configurable error tolerance'
+    ],
+    categoryColor: 'purple'
+  },
+  'node-guardrail': {
+    id: 'node-guardrail',
+    name: 'GuardrailNode',
+    subtitle: '(Autonomous Self-Correction)',
+    icon: ShieldCheck,
+    layerIndex: 5,
+    layerName: 'NODE PLUGIN ECOSYSTEM LAYER',
+    techStack: 'INodeExecutor • LLM-as-a-Judge • Rewind Engine',
+    protocol: 'DAG Rewind & Memory Invalidation',
+    description: 'Autonomous self-healing validator inspecting upstream agent outputs, catching hallucinations, and rewinding DAG execution with corrective prompts.',
+    specifications: [
+      '5 validation modes: strict_json, required_keys, regex_match, banned_keywords, llm_judge',
+      'Autonomous rewind loop: resets DAG index (i = targetIndex - 1) and invalidates intermediate state',
+      'Passes structured correctionFeedback into upstream AgentNode prompt on rerun',
+      'Max retry circuit breaker preventing infinite loops and routing to DLQ'
     ],
     categoryColor: 'purple'
   },
@@ -743,7 +780,7 @@ export default function InteractiveArchitectureMap() {
           Enterprise System Topology
         </span>
         <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white uppercase">
-          FlowAgent Architecture
+          AetherFlow Architecture
         </h2>
         <p className="text-xs sm:text-sm text-slate-400 font-light max-w-2xl">
           Complete full-stack architecture matrix. Click any component to inspect its enterprise specifications and data protocols.
@@ -839,8 +876,8 @@ export default function InteractiveArchitectureMap() {
                 <span className="px-1.5 py-0.5 rounded bg-white/10 text-white font-black">1</span> CLIENT & PRESENTATION LAYER
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
-              {['client-landing', 'client-workflow', 'client-kb', 'client-settings', 'client-telemetry'].map(renderNodeCard)}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              {['client-landing', 'client-workflow', 'client-kb', 'client-dlq', 'client-settings', 'client-telemetry'].map(renderNodeCard)}
             </div>
           </div>
 
@@ -899,8 +936,8 @@ export default function InteractiveArchitectureMap() {
                 <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-black">5</span> NODE PLUGIN ECOSYSTEM LAYER (STRATEGY PATTERN)
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
-              {['node-rag', 'node-agent', 'node-python', 'node-custom', 'node-api'].map(renderNodeCard)}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
+              {['node-rag', 'node-agent', 'node-guardrail', 'node-api', 'node-foreach', 'node-python', 'node-custom'].map(renderNodeCard)}
             </div>
           </div>
 

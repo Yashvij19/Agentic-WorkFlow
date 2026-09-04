@@ -3,7 +3,7 @@
 
 import React from 'react';
 
-export function PageTransitionLoader({ text = 'FLOWAGENT' }: { text?: string }) {
+export function PageTransitionLoader({ text = 'AETHERFLOW' }: { text?: string }) {
   return (
     <div className="flex flex-col items-center justify-center w-full h-full select-none pointer-events-none">
       <style

@@ -4,6 +4,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import AetherFlowLogo from '@/components/AetherFlowLogo';
 import { 
   AlertOctagon, 
   RefreshCw, 
@@ -270,8 +271,8 @@ export default function DeadLetterQueuePage() {
       <nav className="border-b border-white/[0.04] bg-[#050814]/80 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link href="/" className="font-bold tracking-tight text-white text-base hover:text-slate-200 transition-colors duration-200">
-              FlowAgent
+            <Link href="/" className="flex items-center gap-2 group">
+              <AetherFlowLogo size={26} showText textSize="text-base" />
             </Link>
 
             <div className="hidden sm:flex items-center gap-6">

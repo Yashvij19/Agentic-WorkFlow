@@ -3,6 +3,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import AetherFlowLogo from '@/components/AetherFlowLogo';
 
 interface NodePaletteProps {
   isOpen: boolean;
@@ -50,16 +51,8 @@ export default function NodePalette({
 
       {/* 1. BRAND AREA (Fixed Header) */}
       <div className="flex items-center justify-between border-b border-white/[0.04] pb-4 shrink-0">
-        <div className="flex items-center gap-3">
-          {/* Premium SVG Logo Icon inside rounded square */}
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center shadow-md shadow-violet-600/20">
-            <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-            </svg>
-          </div>
-          <span className="font-bold text-sm tracking-tight text-white select-none">
-            FlowAgent
-          </span>
+        <div className="flex items-center gap-2">
+          <AetherFlowLogo size={24} showText textSize="text-sm" />
         </div>
 
         {/* Close Sidebar Trigger (completely closes to hamburger overlay) */}
