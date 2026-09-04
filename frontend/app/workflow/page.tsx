@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Network, AlertTriangle, Copy, Pencil, Trash2, ExternalLink, Loader2, ChevronDown, Pause, Play, FileEdit } from 'lucide-react';
 import { API_URL } from '../../utils/config';
+import { canAccessDLQ } from '../../utils/permissions';
 import UserProfileDropdown from '../../components/profile/UserProfileDropdown';
 import { useToast } from '@/context/ToastContext';
 
@@ -15,6 +16,7 @@ export default function WorkflowsDashboard() {
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -58,12 +60,27 @@ export default function WorkflowsDashboard() {
     if (userStr) {
       try {
         const parsed = JSON.parse(userStr);
+        setCurrentUser(parsed);
         setUserRole(parsed.role);
         setCurrentUserId(parsed.id || parsed.userId || null);
       } catch (err) {
         console.error(err);
       }
     }
+
+    // Refresh profile to verify fresh permissions
+    fetch(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(freshUser => {
+        if (freshUser) {
+          setCurrentUser(freshUser);
+          setUserRole(freshUser.role);
+          localStorage.setItem('user', JSON.stringify(freshUser));
+        }
+      })
+      .catch(() => {});
 
     fetch(`${API_URL}/api/workflows`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -369,9 +386,14 @@ export default function WorkflowsDashboard() {
               >
                 Knowledge Base
               </Link>
-              <span className="text-[10px] font-semibold tracking-wider uppercase text-[#687493] cursor-not-allowed select-none">
-                Agents
-              </span>
+              {canAccessDLQ(currentUser) && (
+                <Link 
+                  href="/dlq" 
+                  className="text-xs font-semibold tracking-wider uppercase text-[#98A4C2] hover:text-white transition duration-200"
+                >
+                  DLQ
+                </Link>
+              )}
               <span className="text-[10px] font-semibold tracking-wider uppercase text-[#687493] cursor-not-allowed select-none">
                 Runs
               </span>

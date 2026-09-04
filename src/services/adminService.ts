@@ -218,10 +218,15 @@ export class AdminService{
                 permissions: {
                     canCreateWorkflow: permissions.canCreateWorkflow !== undefined ? !!permissions.canCreateWorkflow : true,
                     canViewTeamWorkflows: permissions.canViewTeamWorkflows !== undefined ? !!permissions.canViewTeamWorkflows : false,
-                    canViewTeamExecutions: permissions.canViewTeamExecutions !== undefined ? !!permissions.canViewTeamExecutions : false,
-                    canViewTeamFailedExecutions: permissions.canViewTeamFailedExecutions !== undefined ? !!permissions.canViewTeamFailedExecutions : false,
+                    canEditTeamWorkflows: permissions.canEditTeamWorkflows !== undefined ? !!permissions.canEditTeamWorkflows : false,
+                    canRenameTeamWorkflows: permissions.canRenameTeamWorkflows !== undefined ? !!permissions.canRenameTeamWorkflows : false,
                     canDeleteTeamWorkflows: permissions.canDeleteTeamWorkflows !== undefined ? !!permissions.canDeleteTeamWorkflows : false,
                     canExecuteTeamWorkflows: permissions.canExecuteTeamWorkflows !== undefined ? !!permissions.canExecuteTeamWorkflows : false,
+                    canViewTeamExecutions: permissions.canViewTeamExecutions !== undefined ? !!permissions.canViewTeamExecutions : false,
+                    canViewTeamFailedExecutions: permissions.canViewTeamFailedExecutions !== undefined ? !!permissions.canViewTeamFailedExecutions : false,
+                    canViewDLQ: permissions.canViewDLQ !== undefined ? !!permissions.canViewDLQ : (permissions.canViewTeamFailedExecutions !== undefined ? !!permissions.canViewTeamFailedExecutions : false),
+                    canCreatePersonalKnowledgeBase: permissions.canCreatePersonalKnowledgeBase !== undefined ? !!permissions.canCreatePersonalKnowledgeBase : false,
+                    canChangeOrgKnowledgeBase: permissions.canChangeOrgKnowledgeBase !== undefined ? !!permissions.canChangeOrgKnowledgeBase : false,
                     allowedWorkflowIds: Array.isArray(permissions.allowedWorkflowIds) ? permissions.allowedWorkflowIds : []
                 }
             }

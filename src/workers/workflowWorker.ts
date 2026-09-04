@@ -1,15 +1,48 @@
-import { Worker, Job } from "bullmq";
+import { Worker, Job, UnrecoverableError } from "bullmq";
 import { redisConnection, redisPublisher } from "../utils/redis";
 import { WORKFLOW_QUEUE_NAME } from "../queues/workflowQueue";
 import { prisma } from '../utils/db'
 import { injectVariables } from "../utils/interpolation";
-
-
 import 'dotenv/config';
-
-
-
 import { nodeRegistry, ExecutionContext } from '../nodes';
+
+/**
+ * 🛡️ Determines whether an error is permanent (unrecoverable)
+ * or transient (safe to retry with exponential backoff).
+ */
+function isNonRetryableError(err: any): boolean {
+  if (err instanceof UnrecoverableError || err?.name === 'UnrecoverableError') return true;
+  const msg = (err.message || '').toLowerCase();
+
+  // 1. Missing or invalid credentials, tokens, and API keys
+  const isAuthOrSecretIssue =
+    (msg.includes('missing') && (msg.includes('credential') || msg.includes('key') || msg.includes('token'))) ||
+    msg.includes('gemini_api_key') ||
+    msg.includes('invalid api key') ||
+    msg.includes('invalid token') ||
+    msg.includes('token invalid') ||
+    msg.includes('unauthorized') ||
+    msg.includes('forbidden') ||
+    msg.includes('http 401') ||
+    msg.includes('http 403');
+
+  // 2. Client configuration, bad request, endpoint not found, or syntax errors
+  const isClientConfigIssue =
+    msg.includes('http 400') ||
+    msg.includes('http 404') ||
+    msg.includes('http 405') ||
+    msg.includes('http 422') ||
+    msg.includes('bad request') ||
+    msg.includes('not found') ||
+    msg.includes('url is required') ||
+    msg.includes('syntaxerror');
+
+  // 3. Guardrail self-correction loop exhausted after max internal retries
+  const isGuardrailExhausted =
+    msg.includes('guardrail') && msg.includes('permanently');
+
+  return isAuthOrSecretIssue || isClientConfigIssue || isGuardrailExhausted;
+}
 
 // A mock array of steps for our workflow
 function topologicalSort(nodes: any[], edges: any[]): any[] {
@@ -293,7 +326,8 @@ const processWorkflow = async (job: Job) => {
 
   const loopChildNodesToSkip = new Set<string>();
 
-  for (const node of nodesToExecute) {
+  for (let i = 0; i < nodesToExecute.length; i++) {
+       const node = nodesToExecute[i];
     if (completedNodes.has(node.id)) {
       console.log(`⏩ [Worker] Skipping '${node.id}' - Already completed in a previous run.`);
       continue;
@@ -337,6 +371,8 @@ const processWorkflow = async (job: Job) => {
         nodeId: node.id,
         workflowContext,
         credentials: credentialsMap,
+        //  Inject correction feedback if retrying after a guardrail rejection
+        correctionFeedback: workflowContext[`${node.id}_correction`],
         emitTelemetry: (status, message, data) => {
           broadcastTelemetry(orgId, executionId, node.id, status, message, data, triggeredByUserId);
         },
@@ -400,6 +436,7 @@ const processWorkflow = async (job: Job) => {
               nodeId: subNode.id,
               workflowContext: iterationContext,
               credentials: credentialsMap,
+              correctionFeedback: iterationContext[`${subNode.id}_correction`],
               emitTelemetry: (status, message, data) => {
                 broadcastTelemetry(
                   orgId,
@@ -438,6 +475,51 @@ const processWorkflow = async (job: Job) => {
       const executor = nodeRegistry.get(node.type);
       if (executor) {
         const result = await executor.execute(node.data, directInputs, ctx);
+        if(result.retryFeedback){
+          const {targetNodeId , reason , retryCount , maxRetries , shouldRetry , augmentedPrompt} = result.retryFeedback;
+
+          // 1. Record the retry attempt in workflow memory
+          workflowContext[`${node.id}_retry_count`] = retryCount;
+
+          if(shouldRetry){
+            console.log(`🛡️ [Worker] Guardrail '${node.id}' rejected output. Rewinding to '${targetNodeId}' (Attempt ${retryCount}/${maxRetries}).`);
+            console.log(`   Reason: ${reason}`);
+
+               // 2. Attach actionable correction feedback for the target node's next attempt
+            workflowContext[`${targetNodeId}_correction`] = augmentedPrompt || reason;
+
+             // 3. Find the target node in our execution path
+            const targetIndex = nodesToExecute.findIndex(n => n.id === targetNodeId);
+             if (targetIndex !== -1) {
+              // Unmark the target node and any intermediary nodes up to the guardrail
+
+              for (let j = targetIndex; j <= i; j++) {
+                completedNodes.delete(nodesToExecute[j].id);
+              }
+
+              // Broadcast live telemetry so canvas highlights the self-healing retry!
+              broadcastTelemetry(
+                orgId,
+                executionId,
+                node.id,
+                'RUNNING',
+                `🔄 Auto-correcting: Rewinding to '${targetNodeId}' (Attempt ${retryCount}/${maxRetries}): ${reason}`,
+                { retryFeedback: result.retryFeedback },
+                triggeredByUserId
+              );
+
+                // ⏪ REWIND: Set loop counter so next iteration starts at targetIndex
+              i = targetIndex - 1;
+              continue;
+
+             }else{
+              console.warn(`⚠️ [Worker] Target node '${targetNodeId}' not found in execution path.`);
+             }
+          }else{
+             console.error(`☠️ [Worker] Guardrail '${node.id}' exhausted all ${maxRetries} retries.`);
+            throw new Error(`Guardrail '${node.id}' failed permanently after ${maxRetries} attempts: ${reason}`);
+          }
+        }
         if (!result.success && result.error) {
           throw new Error(result.error);
         }
@@ -451,14 +533,26 @@ const processWorkflow = async (job: Job) => {
 
       // Save step result into execution context
       workflowContext[node.id] = { output: stepResult };
-      // Write execution log
-      await prisma.executionLog.create({
-        data: {
+     
+
+      // Write/Update execution log (using upsert to support safe node re-runs!)
+      await prisma.executionLog.upsert({
+        where: {
+          executionId_nodeId: {
+            executionId,
+            nodeId: node.id,
+          },
+        },
+        update: {
+          status: 'COMPLETED',
+          outputData: { result: workflowContext[node.id] },
+        },
+        create: {
           executionId,
           nodeId: node.id,
           status: 'COMPLETED',
-          outputData: { result: workflowContext[node.id] }
-        }
+          outputData: { result: workflowContext[node.id] },
+        },
       });
       broadcastTelemetry(orgId, executionId, node.id, 'COMPLETED', `Step ${node.id} finished successfully.`, undefined, triggeredByUserId);
 
@@ -466,26 +560,48 @@ const processWorkflow = async (job: Job) => {
 
     } catch (nodeError: any) {
       console.error(`☠️ [Worker] Step ${node.id} failed:`, nodeError.message);
-      await prisma.executionLog.create({
+      
 
-        data: {
+        // Use upsert here as well to safely record failure even on retry
+      await prisma.executionLog.upsert({
+        where: {
+          executionId_nodeId: {
+            executionId,
+            nodeId: node.id,
+          },
+        },
+        update: {
+          status: 'FAILED',
+          outputData: { error: nodeError.message },
+        },
+        create: {
           executionId,
           nodeId: node.id,
           status: 'FAILED',
-          outputData: { error: nodeError.message }
-        }
+          outputData: { error: nodeError.message },
+        },
       });
       broadcastTelemetry(orgId, executionId, node.id, 'FAILED', `Step ${node.id} failed: ${nodeError.message}`, undefined, triggeredByUserId);
-      //  Mark entire run as FAILED in DB and abort
 
-      await prisma.workflowExecution.update({
-        where: { id: executionId },
-        data: {
-          status: 'FAILED',
-          completedAt: new Date()
-        }
-      });
-      throw nodeError; // Re-throw to fail the BullMQ job
+      
+      // 🛡️ Permanent vs Transient Error Handling
+      if (isNonRetryableError(nodeError)) {
+        console.warn(`🛑 [Worker] Permanent error detected at node '${node.id}'. Bypassing BullMQ retries: ${nodeError.message}`);
+
+        await prisma.workflowExecution.update({
+          where: { id: executionId },
+          data: {
+            status: 'FAILED',
+            completedAt: new Date(),
+          },
+        });
+
+        // Abort BullMQ job immediately on attempt 1 without useless retries
+        throw new UnrecoverableError(nodeError.message);
+      }
+
+      // Transient error (e.g. temporary network drop, rate limit): re-throw standard error so BullMQ retries!
+      throw nodeError;
     }
   }
 
@@ -512,14 +628,17 @@ worker.on('completed', (job) => {
 })
 
 worker.on("failed", async (job, err) => {
-  if (!job) return
+  if (!job) return;
 
-  const { executionId } = job.data
-  // job.attemptsMade tells us how many times it has tried so far
-  // job.opts.attempts tells us the maximum allowed tries (3)  , built in bull mq methods
+  const { executionId } = job.data;
+  const isUnrecoverable = err.name === 'UnrecoverableError' || err instanceof UnrecoverableError || isNonRetryableError(err);
 
-  if (job.attemptsMade >= (job.opts.attempts || 3)) {
-    console.error(`☠️ [DLQ] Job ${executionId} failed permanently. Moving to Dead Letter Queue.`);
+  if (isUnrecoverable || job.attemptsMade >= (job.opts.attempts || 3)) {
+    if (isUnrecoverable) {
+      console.error(`🛑 [Worker] Job ${executionId} aborted immediately (UnrecoverableError). No useless retries performed.`);
+    } else {
+      console.error(`☠️ [DLQ] Job ${executionId} failed permanently after exhausting all ${job.opts.attempts || 3} attempts. Moving to Dead Letter Queue.`);
+    }
     console.error(`   Error details: ${err.message}`);
 
     await prisma.workflowExecution.update({
@@ -532,7 +651,7 @@ worker.on("failed", async (job, err) => {
       }
     });
   } else {
-    console.warn(`⚠️ [Retry] Job ${executionId} failed (Attempt ${job.attemptsMade}). Retrying in a few seconds...`);
+    console.warn(`⚠️ [Retry] Job ${executionId} failed with transient error (Attempt ${job.attemptsMade}/${job.opts.attempts || 3}). Retrying in a few seconds...`);
   }
 });
 

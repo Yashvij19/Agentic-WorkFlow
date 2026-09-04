@@ -34,6 +34,7 @@ import TraceInspectorModal from '../../../components/canvas/TraceInspectorModal'
 import CustomCodeNode from '../../../components/nodes/CustomCodeNode';
 import PythonCodeNode from '../../../components/nodes/PythonCodeNode';
 import ForEachNode from '../../../components/nodes/ForEachNode';
+import GuardrailNode from '../../../components/nodes/GuardrailNode';
 
 // Static Node Types Registration outside component (avoids re-creation warning)
 const nodeTypes = {
@@ -44,6 +45,7 @@ const nodeTypes = {
   custom_code: CustomCodeNode,
   python_code: PythonCodeNode,
   foreach: ForEachNode,
+  guardrail: GuardrailNode,
 };
 
 export default function WorkflowWorkspace() {
@@ -206,7 +208,12 @@ export default function WorkflowWorkspace() {
               if (node.id === telemetry.nodeId) {
                 return {
                   ...node,
-                  data: { ...node.data, status: telemetry.status },
+                  data: {
+                    ...node.data,
+                    status: telemetry.status,
+                    retryFeedback: telemetry.data?.retryFeedback || (telemetry.status === 'COMPLETED' ? null : node.data.retryFeedback),
+                    telemetryMessage: telemetry.message,
+                  },
                 };
               }
               return node;
@@ -590,6 +597,15 @@ export default function WorkflowWorkspace() {
           continueOnError: type === 'foreach' ? true : undefined,
           itemAlias: type === 'foreach' ? '$item' : undefined,
           indexAlias: type === 'foreach' ? '$index' : undefined,
+          mode: type === 'guardrail' ? 'strict_json' : undefined,
+          maxRetries: type === 'guardrail' ? 3 : undefined,
+          requiredKeys: type === 'guardrail' ? ['summary'] : undefined,
+          bannedWords: type === 'guardrail' ? [] : undefined,
+          regexPattern: type === 'guardrail' ? '' : undefined,
+          regexFlags: type === 'guardrail' ? 'i' : undefined,
+          llmJudgePrompt: type === 'guardrail' ? '' : undefined,
+          customErrorMessage: type === 'guardrail' ? 'Return strictly valid JSON only without markdown code fences.' : undefined,
+          targetNodeId: type === 'guardrail' ? '' : undefined,
         },
       };
 

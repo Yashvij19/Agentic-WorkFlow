@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Zap, Search, Sliders, Activity, RotateCcw } from 'lucide-react';
+import { Zap, Search, Sliders, Activity, RotateCcw, Shield, Globe, Key, FileText, Filter, Send } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 
 interface PropertiesPanelProps {
@@ -29,6 +29,7 @@ export default function PropertiesPanel({
   onReplayNode,
 }: PropertiesPanelProps) {
   const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
+  const [apiTab, setApiTab] = useState<'params' | 'headers' | 'auth' | 'body' | 'settings'>('params');
 
   useEffect(() => {
     if (selectedNode?.type === 'rag_query') {
@@ -120,29 +121,289 @@ export default function PropertiesPanel({
           </div>
         )}
 
-        {/* API Request Node Editor */}
+        {/* Advanced API Request Node Editor */}
         {type === 'api' && (
           <div className="space-y-4">
-            <div>
-              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">Request Method</label>
-              <select
-                value={data.method || 'GET'}
-                onChange={(e) => onUpdateNodeData(id, { ...data, method: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-black/45 border border-white/10 rounded-xl text-xs text-white focus:border-[#8B5CF6]/50 focus:outline-none transition cursor-pointer"
-              >
-                <option value="GET">GET</option>
-                <option value="POST">POST</option>
-              </select>
+            {/* Method & URL Grid */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pl-1">
+                <label className="block text-[9px] font-bold text-amber-400 uppercase tracking-widest">
+                  HTTP Request
+                </label>
+                <span className="text-[9px] text-[#687493] font-mono">REST Client</span>
+              </div>
+
+              <div className="flex gap-2">
+                <select
+                  value={data.method || 'GET'}
+                  onChange={(e) => onUpdateNodeData(id, { ...data, method: e.target.value })}
+                  className="w-28 px-2.5 py-2.5 bg-black/60 border border-amber-500/30 rounded-xl text-xs font-mono font-bold text-amber-300 focus:outline-none transition cursor-pointer"
+                >
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="PATCH">PATCH</option>
+                  <option value="DELETE">DELETE</option>
+                  <option value="HEAD">HEAD</option>
+                  <option value="OPTIONS">OPTIONS</option>
+                </select>
+
+                <input
+                  type="text"
+                  value={data.url || ''}
+                  onChange={(e) => onUpdateNodeData(id, { ...data, url: e.target.value })}
+                  className="flex-1 px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs font-mono text-slate-200 outline-none focus:border-amber-500/40"
+                  placeholder="https://api.example.com/v1/resource"
+                />
+              </div>
+              <p className="text-[9px] text-[#687493] pl-1">
+                Supports variable interpolation like <code className="text-amber-400 font-mono">{"{{agent_1.output.id}}"}</code>.
+              </p>
             </div>
+
+            {/* Navigation Sub-Tabs */}
+            <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 gap-1">
+              {(['params', 'headers', 'auth', 'body', 'settings'] as const).map((tab) => {
+                const isActive = apiTab === tab;
+                const isBodyTab = tab === 'body';
+                const isGetMethod = (data.method || 'GET') === 'GET' || (data.method || 'GET') === 'HEAD';
+
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setApiTab(tab)}
+                    className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider rounded-lg transition cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm'
+                        : isBodyTab && isGetMethod
+                        ? 'text-slate-600 hover:text-slate-400'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* TAB 1: PARAMS (Query Parameters) */}
+            {apiTab === 'params' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between pl-1">
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest">
+                    Query Parameters
+                  </label>
+                  <span className="text-[9px] text-[#687493] font-mono">key=val or JSON</span>
+                </div>
+                <textarea
+                  rows={4}
+                  value={data.queryParams || ''}
+                  onChange={(e) => onUpdateNodeData(id, { ...data, queryParams: e.target.value })}
+                  className="w-full p-3 bg-black/50 border border-white/10 rounded-xl text-xs font-mono text-slate-200 outline-none focus:border-amber-500/40 leading-relaxed"
+                  placeholder={"limit=10&status=active\nor\n{\n  \"search\": \"{{node_1.output}}\"\n}"}
+                  spellCheck={false}
+                />
+                <p className="text-[9px] text-[#687493] pl-1">
+                  Appends directly to URL search query string with automatic URL encoding.
+                </p>
+              </div>
+            )}
+
+            {/* TAB 2: HEADERS */}
+            {apiTab === 'headers' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1.5 pl-1">
+                    Content-Type Header
+                  </label>
+                  <select
+                    value={data.contentType || 'application/json'}
+                    onChange={(e) => onUpdateNodeData(id, { ...data, contentType: e.target.value })}
+                    className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs font-mono text-slate-200 outline-none"
+                  >
+                    <option value="application/json">application/json</option>
+                    <option value="application/x-www-form-urlencoded">application/x-www-form-urlencoded</option>
+                    <option value="text/plain">text/plain</option>
+                    <option value="multipart/form-data">multipart/form-data</option>
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5 pl-1">
+                    <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest">
+                      Custom HTTP Headers
+                    </label>
+                    <span className="text-[9px] text-[#687493] font-mono">Header: Value</span>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={data.headers || ''}
+                    onChange={(e) => onUpdateNodeData(id, { ...data, headers: e.target.value })}
+                    className="w-full p-3 bg-black/50 border border-white/10 rounded-xl text-xs font-mono text-slate-200 outline-none focus:border-amber-500/40 leading-relaxed"
+                    placeholder={"X-Custom-Client: AgentEngine\nAccept-Language: en-US\nor JSON: {\"X-Key\": \"123\"}"}
+                    spellCheck={false}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: AUTH (Authentication) */}
+            {apiTab === 'auth' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[9px] font-bold text-amber-400 uppercase tracking-widest mb-1.5 pl-1">
+                    Bearer Token
+                  </label>
+                  <input
+                    type="password"
+                    value={data.bearerToken || ''}
+                    onChange={(e) => onUpdateNodeData(id, { ...data, bearerToken: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-black/50 border border-amber-500/20 rounded-xl text-xs font-mono text-amber-200 outline-none"
+                    placeholder="Bearer token or {{GEMINI_API_KEY}}"
+                  />
+                  <p className="text-[9px] text-[#687493] mt-1 pl-1">
+                    Automatically attaches as <code className="text-slate-300 font-mono">Authorization: Bearer [token]</code>.
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-white/5 space-y-2">
+                  <span className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest pl-1">
+                    Custom API Key Header (Alternative)
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={data.authHeaderName || ''}
+                      onChange={(e) => onUpdateNodeData(id, { ...data, authHeaderName: e.target.value })}
+                      className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-xs font-mono text-slate-200 outline-none"
+                      placeholder="X-API-Key"
+                    />
+                    <input
+                      type="password"
+                      value={data.authHeaderValue || ''}
+                      onChange={(e) => onUpdateNodeData(id, { ...data, authHeaderValue: e.target.value })}
+                      className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-xs font-mono text-slate-200 outline-none"
+                      placeholder="secret_key_123"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: BODY (Request Payload) */}
+            {apiTab === 'body' && (
+              <div className="space-y-2">
+                {((data.method || 'GET') === 'GET' || (data.method || 'GET') === 'HEAD') ? (
+                  <div className="p-3.5 bg-amber-950/20 border border-amber-500/20 rounded-xl text-xs text-amber-200 space-y-1">
+                    <span className="font-bold block text-[10px] uppercase tracking-wider">
+                      ℹ️ GET requests do not have a body
+                    </span>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      HTTP specifications disallow body payloads for GET/HEAD requests. Change method to <strong>POST</strong>, <strong>PUT</strong>, or <strong>PATCH</strong> to send data.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between pl-1">
+                      <label className="block text-[9px] font-bold text-emerald-400 uppercase tracking-widest">
+                        JSON Payload Body
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            if (data.body) {
+                              const formatted = JSON.stringify(JSON.parse(data.body), null, 2);
+                              onUpdateNodeData(id, { ...data, body: formatted });
+                            }
+                          } catch {}
+                        }}
+                        className="text-[9px] text-emerald-400 hover:text-emerald-300 font-mono transition cursor-pointer"
+                      >
+                        Format JSON
+                      </button>
+                    </div>
+                    <textarea
+                      rows={7}
+                      value={data.body || ''}
+                      onChange={(e) => onUpdateNodeData(id, { ...data, body: e.target.value })}
+                      className="w-full p-3 bg-black/60 border border-emerald-500/20 focus:border-emerald-500/50 rounded-xl text-xs font-mono text-emerald-200/90 leading-relaxed outline-none transition"
+                      placeholder={"{\n  \"prompt\": \"{{agent_1.output.summary}}\",\n  \"status\": \"active\"\n}"}
+                      spellCheck={false}
+                    />
+                    <p className="text-[9px] text-[#687493] pl-1">
+                      * Leave empty to automatically forward direct upstream node outputs.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* TAB 5: SETTINGS */}
+            {apiTab === 'settings' && (
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between items-center mb-1.5 pl-1">
+                    <label className="text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest">
+                      Request Timeout: {(data.timeoutMs || 15000) / 1000}s
+                    </label>
+                  </div>
+                  <input
+                    type="range"
+                    min="1000"
+                    max="60000"
+                    step="1000"
+                    value={data.timeoutMs || 15000}
+                    onChange={(e) => onUpdateNodeData(id, { ...data, timeoutMs: Number(e.target.value) })}
+                    className="w-full accent-amber-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[8px] text-[#687493] font-mono mt-1 px-1">
+                    <span>1s (Fast)</span>
+                    <span>15s (Default)</span>
+                    <span>60s (Long)</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Starter Presets */}
             <div>
-              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">API Target URL</label>
-              <input
-                type="text"
-                value={data.url || ''}
-                onChange={(e) => onUpdateNodeData(id, { ...data, url: e.target.value })}
-                className="w-full px-3.5 py-2.5 glass-input rounded-xl text-xs font-mono"
-                placeholder="https://api.github.com/repos"
-              />
+              <span className="block text-[9px] font-bold text-[#687493] uppercase tracking-widest mb-1.5 pl-1">
+                Quick Presets
+              </span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNodeData(id, {
+                      ...data,
+                      method: 'GET',
+                      url: 'https://jsonplaceholder.typicode.com/todos/1',
+                      queryParams: '',
+                    })
+                  }
+                  className="py-1.5 px-2 bg-black/30 hover:bg-sky-500/10 border border-white/5 hover:border-sky-500/30 rounded-lg text-[10px] text-slate-300 hover:text-sky-200 transition cursor-pointer text-left flex items-center gap-1.5"
+                >
+                  <Globe className="w-3 h-3 text-sky-400 shrink-0" />
+                  <span>Fetch Todo (GET)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNodeData(id, {
+                      ...data,
+                      method: 'POST',
+                      url: 'https://httpbin.org/post',
+                      body: '{\n  "source": "AgenticWorkflow",\n  "data": "{{node_1.output}}"\n}',
+                    })
+                  }
+                  className="py-1.5 px-2 bg-black/30 hover:bg-emerald-500/10 border border-white/5 hover:border-emerald-500/30 rounded-lg text-[10px] text-slate-300 hover:text-emerald-200 transition cursor-pointer text-left flex items-center gap-1.5"
+                >
+                  <Send className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>Post Payload (POST)</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -728,6 +989,211 @@ export default function PropertiesPanel({
               <p className="flex items-center gap-1.5 text-slate-300">
                 <span className="text-indigo-400 font-bold">🏁 Done:</span> Connect to steps that run <em>once</em> after all items finish.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Autonomous Guardrail Node Editor */}
+        {type === 'guardrail' && (
+          <div className="space-y-4">
+            {/* Header / Mode Selector */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5 pl-1">
+                <label className="block text-[9px] font-bold text-rose-400 uppercase tracking-widest">
+                  Validation Strategy
+                </label>
+                <span className="text-[9px] text-[#687493] font-mono">Self-Correction</span>
+              </div>
+              <select
+                value={data.mode || 'strict_json'}
+                onChange={(e) => onUpdateNodeData(id, { ...data, mode: e.target.value })}
+                className="w-full px-3 py-2.5 bg-black/60 border border-rose-500/25 focus:border-rose-500/50 rounded-xl text-xs text-slate-100 font-medium outline-none transition"
+              >
+                <option value="strict_json">Strict Valid JSON (No Markdown)</option>
+                <option value="required_keys">Required JSON Keys (Schema)</option>
+                <option value="regex_match">Regex Pattern Compliance</option>
+                <option value="banned_keywords">Banned Keywords (Safety Filter)</option>
+                <option value="llm_judge">LLM-as-a-Judge (Semantic Evaluator)</option>
+              </select>
+            </div>
+
+            {/* Target Node ID to Rewind / Auto-Correct */}
+            <div>
+              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1.5 pl-1">
+                Target Node to Correct
+              </label>
+              <input
+                type="text"
+                value={data.targetNodeId || ''}
+                onChange={(e) => onUpdateNodeData(id, { ...data, targetNodeId: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs font-mono text-slate-200 outline-none"
+                placeholder="e.g. node_17254... (blank = auto-detect)"
+              />
+              <p className="text-[9px] text-[#687493] mt-1 pl-1">
+                Leave empty to automatically target the immediate predecessor node.
+              </p>
+            </div>
+
+            {/* Max Retries Slider */}
+            <div>
+              <div className="flex justify-between items-center mb-1.5 pl-1">
+                <label className="text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest">
+                  Max Auto-Retries: {data.maxRetries ?? 3}x
+                </label>
+                <span className="text-[9px] text-rose-400 font-mono">
+                  {(data.maxRetries ?? 3) === 1 ? '1 attempt' : `${data.maxRetries ?? 3} attempts`}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="5"
+                step="1"
+                value={data.maxRetries ?? 3}
+                onChange={(e) => onUpdateNodeData(id, { ...data, maxRetries: Number(e.target.value) })}
+                className="w-full accent-rose-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer"
+              />
+              <div className="flex justify-between text-[8px] text-[#687493] font-mono mt-1 px-1">
+                <span>1 (Strict)</span>
+                <span>3 (Recommended)</span>
+                <span>5 (Max)</span>
+              </div>
+            </div>
+
+            {/* Mode Specific Configurations */}
+            {data.mode === 'required_keys' && (
+              <div>
+                <label className="block text-[9px] font-bold text-orange-400 uppercase tracking-widest mb-1.5 pl-1">
+                  Required JSON Keys (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={Array.isArray(data.requiredKeys) ? data.requiredKeys.join(', ') : (data.requiredKeys || '')}
+                  onChange={(e) => {
+                    const keys = e.target.value.split(',').map((k) => k.trim()).filter(Boolean);
+                    onUpdateNodeData(id, { ...data, requiredKeys: keys });
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-black/50 border border-orange-500/20 rounded-xl text-xs font-mono text-orange-200 outline-none"
+                  placeholder="summary, status, items"
+                />
+              </div>
+            )}
+
+            {data.mode === 'regex_match' && (
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-[9px] font-bold text-amber-400 uppercase tracking-widest mb-1.5 pl-1">
+                    Regex Pattern
+                  </label>
+                  <input
+                    type="text"
+                    value={data.regexPattern || ''}
+                    onChange={(e) => onUpdateNodeData(id, { ...data, regexPattern: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-black/50 border border-amber-500/20 rounded-xl text-xs font-mono text-amber-200 outline-none"
+                    placeholder="^\\d{4}-\\d{2}-\\d{2}$"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                    Regex Flags
+                  </label>
+                  <input
+                    type="text"
+                    value={data.regexFlags || 'i'}
+                    onChange={(e) => onUpdateNodeData(id, { ...data, regexFlags: e.target.value })}
+                    className="w-24 px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-xs font-mono text-slate-200 outline-none"
+                    placeholder="i"
+                  />
+                </div>
+              </div>
+            )}
+
+            {data.mode === 'banned_keywords' && (
+              <div>
+                <label className="block text-[9px] font-bold text-red-400 uppercase tracking-widest mb-1.5 pl-1">
+                  Prohibited Keywords (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={Array.isArray(data.bannedWords) ? data.bannedWords.join(', ') : (data.bannedWords || '')}
+                  onChange={(e) => {
+                    const words = e.target.value.split(',').map((w) => w.trim()).filter(Boolean);
+                    onUpdateNodeData(id, { ...data, bannedWords: words });
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-black/50 border border-red-500/20 rounded-xl text-xs font-mono text-red-200 outline-none"
+                  placeholder="confidential, competitor_name, internal_only"
+                />
+              </div>
+            )}
+
+            {data.mode === 'llm_judge' && (
+              <div>
+                <label className="block text-[9px] font-bold text-purple-400 uppercase tracking-widest mb-1.5 pl-1">
+                  Judge Evaluation Criteria
+                </label>
+                <textarea
+                  rows={4}
+                  value={data.llmJudgePrompt || ''}
+                  onChange={(e) => onUpdateNodeData(id, { ...data, llmJudgePrompt: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-black/50 border border-purple-500/20 rounded-xl text-xs text-purple-200 outline-none"
+                  placeholder="Evaluate whether the response is polite, factually grounded, and contains no hallucinations."
+                />
+              </div>
+            )}
+
+            {/* Custom Error Guidance (Prompt Suffix sent to LLM on retry) */}
+            <div>
+              <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1.5 pl-1">
+                Custom Correction Guidance (Prompt Hint)
+              </label>
+              <textarea
+                rows={2}
+                value={data.customErrorMessage || ''}
+                onChange={(e) => onUpdateNodeData(id, { ...data, customErrorMessage: e.target.value })}
+                className="w-full px-3.5 py-2 bg-black/50 border border-white/10 rounded-xl text-xs text-slate-200 outline-none"
+                placeholder="Ensure you only return valid JSON without markdown code backticks."
+              />
+              <p className="text-[9px] text-[#687493] mt-1 pl-1">
+                Injected into the upstream Agent's prompt when this guardrail triggers a retry.
+              </p>
+            </div>
+
+            {/* Quick Rule Presets */}
+            <div>
+              <span className="block text-[9px] font-bold text-[#687493] uppercase tracking-widest mb-1.5 pl-1">
+                Quick Presets
+              </span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNodeData(id, {
+                      ...data,
+                      mode: 'strict_json',
+                      customErrorMessage: 'Return strictly valid JSON only. Do NOT use markdown code blocks.',
+                    })
+                  }
+                  className="py-1.5 px-2 bg-black/30 hover:bg-rose-500/10 border border-white/5 hover:border-rose-500/30 rounded-lg text-[10px] text-slate-300 hover:text-rose-200 transition cursor-pointer text-left flex items-center gap-1.5"
+                >
+                  <Shield className="w-3 h-3 text-rose-400 shrink-0" />
+                  <span>Strict JSON</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateNodeData(id, {
+                      ...data,
+                      mode: 'required_keys',
+                      requiredKeys: ['summary', 'sentiment'],
+                      customErrorMessage: 'Ensure your JSON object includes both "summary" and "sentiment" keys.',
+                    })
+                  }
+                  className="py-1.5 px-2 bg-black/30 hover:bg-orange-500/10 border border-white/5 hover:border-orange-500/30 rounded-lg text-[10px] text-slate-300 hover:text-orange-200 transition cursor-pointer text-left flex items-center gap-1.5"
+                >
+                  <Shield className="w-3 h-3 text-orange-400 shrink-0" />
+                  <span>Schema Keys</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
