@@ -2,7 +2,7 @@ import 'dotenv/config';
 import Fastify, { FastifyInstance } from "fastify";
 import fastifyJwt from "@fastify/jwt";
 import { idempotencyPulgins } from "./plugins/idempotency";
-import webSocket from "@fastify/webSocket"
+import webSocket from "@fastify/websocket";
 import fastifyRateLimit from '@fastify/rate-limit';
 import { redisConnection } from './utils/redis';
 import { authRoutes } from './routes/authRoutes';
@@ -130,7 +130,7 @@ const start = async () => {
 
         // In unified/cloud deployments, spin up the BullMQ worker in the same process
         if (process.env.RUN_WORKER !== 'false') {
-            await import('./workers/workflowWorker');
+            require('./workers/workflowWorker');
             server.log.info('⚙️ [Worker] BullMQ Workflow Worker initialized in unified server process.');
         }
     } catch (err) {
