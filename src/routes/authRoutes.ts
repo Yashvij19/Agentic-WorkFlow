@@ -143,6 +143,88 @@ export async function authRoutes(server: FastifyInstance) {
         }
     });
 
+    // 🛡️ Public: Check if account has 2FA enabled for Forgot Password modal routing
+    server.post('/api/auth/2fa/status', {
+        config: {
+            rateLimit: {
+                max: 10,
+                timeWindow: '1 minute'
+            }
+        }
+    }, async (request, reply) => {
+        try {
+            const { email } = (request.body as any) || {};
+            if (!email) {
+                return reply.code(400).send({ error: 'Email is required.' });
+            }
+            const status = await AuthService.check2FAStatus(email);
+            return reply.code(200).send(status);
+        } catch (error: any) {
+            return reply.code(400).send({ error: error.message });
+        }
+    });
+
+    // 🛡️ Authenticated: Generate 2FA Secret Key, QR URI, and 5 Backup Codes
+    server.post('/api/auth/2fa/setup', async (request, reply) => {
+        try {
+            await server.authenticate(request, reply);
+            if (!request.user) return;
+            const setupPayload = await AuthService.setup2FA(request.user.id);
+            return reply.code(200).send(setupPayload);
+        } catch (error: any) {
+            return reply.code(400).send({ error: error.message });
+        }
+    });
+
+    // 🛡️ Authenticated: Verify rolling 6-digit code and activate 2FA
+    server.post('/api/auth/2fa/enable', async (request, reply) => {
+        try {
+            await server.authenticate(request, reply);
+            if (!request.user) return;
+            const { code } = (request.body as any) || {};
+            if (!code) {
+                return reply.code(400).send({ error: '6-digit verification code is required.' });
+            }
+            const result = await AuthService.enable2FA(request.user.id, code);
+            return reply.code(200).send(result);
+        } catch (error: any) {
+            return reply.code(400).send({ error: error.message });
+        }
+    });
+
+    // 🛡️ Authenticated: Disable 2FA (Requires password & confirmation code)
+    server.post('/api/auth/2fa/disable', async (request, reply) => {
+        try {
+            await server.authenticate(request, reply);
+            if (!request.user) return;
+            const { password, code } = (request.body as any) || {};
+            if (!password || !code) {
+                return reply.code(400).send({ error: 'Current password and verification code are required to disable 2FA.' });
+            }
+            const result = await AuthService.disable2FA(request.user.id, password, code);
+            return reply.code(200).send(result);
+        } catch (error: any) {
+            return reply.code(400).send({ error: error.message });
+        }
+    });
+
+    // 🛡️ Authenticated: Regenerate 5 fresh backup recovery codes
+    server.post('/api/auth/2fa/regenerate-backup-codes', async (request, reply) => {
+        try {
+            await server.authenticate(request, reply);
+            if (!request.user) return;
+            const { password } = (request.body as any) || {};
+            if (!password) {
+                return reply.code(400).send({ error: 'Current password is required to regenerate backup codes.' });
+            }
+            const result = await AuthService.regenerateBackupCodes(request.user.id, password);
+            return reply.code(200).send(result);
+        } catch (error: any) {
+            return reply.code(400).send({ error: error.message });
+        }
+    });
+
+    // 🛡️ Public: Rate-limited self-service password reset protected by Microsoft Authenticator or Backup Code
     server.post('/api/auth/forgot-password', {
         config: {
             rateLimit: {
@@ -152,11 +234,11 @@ export async function authRoutes(server: FastifyInstance) {
         }
     }, async (request, reply) => {
         try {
-            const { email, newPassword } = (request.body as any) || {};
-            if (!email || !newPassword) {
-                return reply.code(400).send({ error: 'Email and new password are required.' });
+            const { email, code, newPassword } = (request.body as any) || {};
+            if (!email || !code || !newPassword) {
+                return reply.code(400).send({ error: 'Email, verification code (or backup code), and new password are required.' });
             }
-            const result = await AuthService.forgotPassword(email, newPassword);
+            const result = await AuthService.forgotPasswordWith2FA(email, code, newPassword);
             return reply.code(200).send(result);
         } catch (error: any) {
             return reply.code(400).send({ error: error.message });

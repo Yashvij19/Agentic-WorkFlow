@@ -4,10 +4,12 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, KeyRound, ArrowLeft, CheckCircle2, Lock } from 'lucide-react';
+import { AlertCircle, KeyRound, ArrowLeft, CheckCircle2, Lock, ShieldCheck, ShieldAlert } from 'lucide-react';
 import AutoCanvasVisual from '@/components/AutoCanvasVisual';
 import { API_URL } from '../../utils/config';
 import { useToast } from '@/context/ToastContext';
+import PasswordRequirements from '@/components/PasswordRequirements';
+import { getPasswordValidationState } from '@/utils/validation';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -15,11 +17,14 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // Forgot Password Modal State
+  // Smart Forgot Password Modal State
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'EMAIL' | 'NO_2FA' | 'VERIFY'>('EMAIL');
   const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotCode, setForgotCode] = useState('');
   const [forgotNewPassword, setForgotNewPassword] = useState('');
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [isChecking2FA, setIsChecking2FA] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
   const router = useRouter();
@@ -56,43 +61,71 @@ export default function LoginPage() {
     }
   };
 
-  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+  const handleCheck2FAStatus = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!forgotEmail || !forgotNewPassword) {
-      toast.warning('Please enter your email and new password.');
+    if (!forgotEmail) {
+      toast.warning('Please enter your account email.');
       return;
     }
+    setIsChecking2FA(true);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/2fa/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+      const data = await res.json();
+      if (data.isTwoFactorEnabled) {
+        setForgotStep('VERIFY');
+      } else {
+        setForgotStep('NO_2FA');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to verify account 2FA status.');
+    } finally {
+      setIsChecking2FA(false);
+    }
+  };
 
-    if (forgotNewPassword.length < 6) {
-      toast.warning('New password must be at least 6 characters.');
+  const handleResetPasswordWith2FA = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotCode || !forgotNewPassword) {
+      toast.warning('Verification code and new password are required.');
       return;
     }
-
+    const passValidation = getPasswordValidationState(forgotNewPassword);
+    if (!passValidation.isValid) {
+      toast.error(passValidation.errorMessage || 'Password does not meet requirements.');
+      return;
+    }
     if (forgotNewPassword !== forgotConfirmPassword) {
       toast.error('New password and confirmation do not match.');
       return;
     }
 
     setIsResetting(true);
-
     try {
       const res = await fetch(`${API_URL}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: forgotEmail,
+          email: forgotEmail.trim(),
+          code: forgotCode.trim(),
           newPassword: forgotNewPassword,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to reset password.');
+        throw new Error(data.error || 'Password reset failed.');
       }
 
       toast.success(data.message || 'Password reset successfully! You can now sign in.');
+      setEmail(forgotEmail);
       setIsForgotModalOpen(false);
+      setForgotStep('EMAIL');
       setForgotEmail('');
+      setForgotCode('');
       setForgotNewPassword('');
       setForgotConfirmPassword('');
     } catch (err: any) {
@@ -217,57 +250,189 @@ export default function LoginPage() {
       </div>
 
       {/* Forgot Password Modal */}
-      {/* Forgot Password Security Modal */}
+      {/* Smart 2FA Forgot Password Modal */}
       {isForgotModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-[#080D1D] border border-white/10 rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-5 relative">
+          <div className="bg-[#080D1D] border border-white/10 rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-5 relative max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
               <div className="flex items-center gap-2.5">
                 <KeyRound className="w-5 h-5 text-amber-400" />
                 <h3 className="text-base font-bold text-white">Password Recovery</h3>
               </div>
               <button
-                onClick={() => setIsForgotModalOpen(false)}
+                onClick={() => {
+                  setIsForgotModalOpen(false);
+                  setForgotStep('EMAIL');
+                }}
                 className="text-slate-400 hover:text-white transition text-xs p-1 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs leading-relaxed space-y-2">
-              <div className="flex items-center gap-2 font-bold text-amber-300">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>Security Notice: Anonymous Resets Restricted</span>
-              </div>
-              <p className="text-slate-300 text-[11px] leading-relaxed">
-                To protect organization credentials and prevent unauthorized account takeover, self-service password resets without two-factor or email verification are restricted.
-              </p>
-            </div>
+            {/* STEP 1: Enter Email to Check 2FA Status */}
+            {forgotStep === 'EMAIL' && (
+              <form onSubmit={handleCheck2FAStatus} className="space-y-4">
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Enter the email address associated with your account to check for verified Two-Factor Authentication recovery.
+                </p>
 
-            <div className="space-y-3 text-xs text-slate-300">
-              <div className="p-3 bg-black/30 rounded-xl border border-white/[0.04]">
-                <span className="font-semibold text-white block mb-1">Team Members:</span>
-                <span className="text-slate-400 text-[11px]">
-                  Please contact your Organization Administrator to regenerate your join token or update your account.
-                </span>
-              </div>
-              <div className="p-3 bg-black/30 rounded-xl border border-white/[0.04]">
-                <span className="font-semibold text-white block mb-1">Already Logged In?</span>
-                <span className="text-slate-400 text-[11px]">
-                  You can change your password anytime securely from your <strong>Settings &gt; Profile</strong> page.
-                </span>
-              </div>
-            </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Account Email Address
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    className="w-full px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 focus:border-violet-500/50 focus:outline-none transition"
+                  />
+                </div>
 
-            <div className="flex items-center justify-end pt-3">
-              <button
-                type="button"
-                onClick={() => setIsForgotModalOpen(false)}
-                className="px-5 py-2.5 bg-white/10 hover:bg-white/15 text-white text-xs font-semibold rounded-xl transition cursor-pointer"
-              >
-                Understood, Return to Sign In
-              </button>
-            </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotModalOpen(false)}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold rounded-xl transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isChecking2FA}
+                    className="px-5 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg transition cursor-pointer disabled:opacity-50"
+                  >
+                    {isChecking2FA ? 'Verifying...' : 'Continue'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* STEP 2A: 2FA NOT ENABLED ON ACCOUNT (PROFESSIONAL LOCKOUT MESSAGE) */}
+            {forgotStep === 'NO_2FA' && (
+              <div className="space-y-4 animate-in fade-in">
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs leading-relaxed space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-amber-300">
+                    <ShieldAlert className="w-5 h-5 shrink-0 text-amber-400" />
+                    <span>Two-Factor Authentication (2FA) Not Configured</span>
+                  </div>
+                  <p className="text-slate-300 text-[11px] leading-relaxed">
+                    Two-Factor Authentication (2FA) is not enabled on this account. Because no secondary verification method is configured, self-service password reset is disabled to protect against unauthorized account takeover.
+                  </p>
+                </div>
+
+                <div className="space-y-3 text-xs text-slate-300">
+                  <div className="p-3 bg-black/30 rounded-xl border border-white/[0.04]">
+                    <span className="font-semibold text-white block mb-1">Organization Members:</span>
+                    <span className="text-slate-400 text-[11px]">
+                      Please contact your Organization Administrator or Team Owner to reset your account credentials.
+                    </span>
+                  </div>
+                  <div className="p-3 bg-black/30 rounded-xl border border-white/[0.04]">
+                    <span className="font-semibold text-white block mb-1">Single Developers & Administrators:</span>
+                    <span className="text-slate-400 text-[11px]">
+                      Access can be restored by the database owner via the emergency CLI terminal utility.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setForgotStep('EMAIL')}
+                    className="text-xs text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                  >
+                    ← Try another email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsForgotModalOpen(false);
+                      setForgotStep('EMAIL');
+                    }}
+                    className="px-5 py-2.5 bg-white/10 hover:bg-white/15 text-white text-xs font-semibold rounded-xl transition cursor-pointer"
+                  >
+                    Return to Sign In
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 2B: 2FA ENABLED - VERIFY ROLLING CODE OR BACKUP CODE & SET NEW PASSWORD */}
+            {forgotStep === 'VERIFY' && (
+              <form onSubmit={handleResetPasswordWith2FA} className="space-y-4 animate-in fade-in">
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>2FA Verified! Authenticate with your phone or backup key.</span>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    6-Digit Code (or Emergency Backup Code)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={forgotCode}
+                    onChange={(e) => setForgotCode(e.target.value)}
+                    placeholder="000 000 or BK-XXXX-XXXX"
+                    className="w-full px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 focus:border-violet-500/50 focus:outline-none transition font-mono tracking-wider"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Check Microsoft Authenticator on your phone, or enter a saved emergency code.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    New Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={forgotNewPassword}
+                    onChange={(e) => setForgotNewPassword(e.target.value)}
+                    placeholder="Enter new password"
+                    className="w-full px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 focus:border-violet-500/50 focus:outline-none transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Confirm New Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={forgotConfirmPassword}
+                    onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                    placeholder="Repeat new password"
+                    className="w-full px-3.5 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs text-white placeholder-slate-600 focus:border-violet-500/50 focus:outline-none transition"
+                  />
+                </div>
+
+                <PasswordRequirements password={forgotNewPassword} />
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setForgotStep('EMAIL')}
+                    className="text-xs text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                  >
+                    ← Back
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isResetting}
+                    className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {isResetting ? 'Resetting...' : 'Reset Password & Sign In'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
