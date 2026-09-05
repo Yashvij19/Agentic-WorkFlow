@@ -421,16 +421,24 @@ export async function workflowRoutes(server: FastifyInstance) {
     });
 
 
-    //8 Trigger workflow execution
+    // 🛡️ Execution Rate Limits: 15 full runs, 20 node runs, 10 replays per minute per Org
+    const executeRateLimitConfig = {
+        config: {
+            rateLimit: {
+                max: 15,
+                timeWindow: '1 minute',
+            }
+        }
+    };
 
-    server.post("/api/workflow/:id/execute", async (request, reply) => {
+    // 8. Trigger workflow execution
+    server.post("/api/workflow/:id/execute", executeRateLimitConfig, async (request, reply) => {
         const orgId = request.user.organizationId;
         const { id } = request.params as any;
         const userId = request.user.id;
 
         try {
-             
-            const execution = await workflowService.triggerExecution(orgId,id ,userId);
+            const execution = await workflowService.triggerExecution(orgId, id, userId);
 
             return reply.code(202).send({
                 message: 'Workflow execution triggered successfully.',
@@ -441,16 +449,21 @@ export async function workflowRoutes(server: FastifyInstance) {
         } catch (err: any) {
             return reply.code(400).send({ error: err.message });
         }
-
     });
 
-    server.post("/api/workflow/:id/execute-node",async(request, reply)=>{
+    server.post("/api/workflow/:id/execute-node", {
+        config: {
+            rateLimit: {
+                max: 20,
+                timeWindow: '1 minute',
+            }
+        }
+    }, async(request, reply)=>{
         const orgId=request.user.organizationId;
         const {id}=request.params as any;
         const {nodeId}=request.body as any;  // The node we want to run up to
         const userId = request.user.id;
 
-        
         if (!nodeId) {
             return reply.code(400).send({ error: 'nodeId is required in the request body.' });
         }
@@ -467,7 +480,14 @@ export async function workflowRoutes(server: FastifyInstance) {
         }
     });
 
-    server.post("/api/workflow/:id/replay" , async(request , reply)=>{
+    server.post("/api/workflow/:id/replay", {
+        config: {
+            rateLimit: {
+                max: 10,
+                timeWindow: '1 minute',
+            }
+        }
+    }, async(request , reply)=>{
         const orgId=request.user.organizationId;
         const {id}=request.params as any;
         const {executionId , targetNodeId , resumeDownstream}= request.body as any;
@@ -493,12 +513,9 @@ export async function workflowRoutes(server: FastifyInstance) {
                 status: execution.status,
             });
 
-
         }catch(err:any){
              return reply.code(400).send({ error: err.message });
         }
-    })
-
-    
+    });
 
 }

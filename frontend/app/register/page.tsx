@@ -5,6 +5,8 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AutoCanvasVisual from '@/components/AutoCanvasVisual';
+import PasswordRequirements from '@/components/PasswordRequirements';
+import { getPasswordValidationState } from '@/utils/validation';
 import { API_URL } from '@/utils/config';
 
 interface ToastState {
@@ -62,6 +64,12 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    const passValidation = getPasswordValidationState(password);
+    if (!passValidation.isValid) {
+      showToast(passValidation.errorMessage || 'Please meet all password requirements.', 'error');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -385,6 +393,7 @@ export default function RegisterPage() {
                         className="w-full px-4 py-3 glass-input rounded-xl text-sm focus:outline-none focus:border-violet-500/50"
                         placeholder="••••••••"
                       />
+                      <PasswordRequirements password={password} />
                     </div>
 
                     <button
@@ -474,6 +483,7 @@ export default function RegisterPage() {
                             className="w-full px-4 py-3 glass-input rounded-xl text-sm focus:outline-none focus:border-violet-500/50"
                             placeholder="••••••••"
                           />
+                          <PasswordRequirements password={password} />
                         </div>
                       </>
                     ) : (
@@ -524,6 +534,7 @@ export default function RegisterPage() {
                             className="w-full px-4 py-3 glass-input rounded-xl text-sm focus:outline-none focus:border-violet-500/50"
                             placeholder="••••••••"
                           />
+                          <PasswordRequirements password={password} />
                         </div>
                       </>
                     )}

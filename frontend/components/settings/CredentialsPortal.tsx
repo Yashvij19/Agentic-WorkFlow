@@ -153,14 +153,13 @@ export default function CredentialsPortal({ onBack, showBackButton = true }: Cre
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">Credential Name</label>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">Provider Credential</label>
                   <select
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl focus:border-[#8B5CF6]/50 focus:outline-none transition text-sm text-white cursor-pointer"
                   >
-                    <option value="GEMINI_API_KEY">GEMINI_API_KEY (Recommended)</option>
-                    <option value="OPENAI_API_KEY">OPENAI_API_KEY</option>
+                    <option value="GEMINI_API_KEY">GEMINI_API_KEY (Google Gemini AI & Embeddings)</option>
                   </select>
                 </div>
 

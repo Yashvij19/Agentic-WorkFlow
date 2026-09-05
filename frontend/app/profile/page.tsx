@@ -10,6 +10,8 @@ import { useToast } from '@/context/ToastContext';
 import AetherFlowLogo from '@/components/AetherFlowLogo';
 
 import { PageTransitionLoader } from '@/components/PageTransitionLoader';
+import PasswordRequirements from '@/components/PasswordRequirements';
+import { getPasswordValidationState } from '@/utils/validation';
 
 interface UserProfile {
   id: string;
@@ -74,8 +76,9 @@ export default function ProfilePage() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      toast.warning('New password must be at least 6 characters.');
+    const passValidation = getPasswordValidationState(newPassword);
+    if (!passValidation.isValid) {
+      toast.warning(passValidation.errorMessage || 'New password does not meet security requirements.');
       return;
     }
 
@@ -295,6 +298,8 @@ export default function ProfilePage() {
                   />
                 </div>
               </div>
+
+              <PasswordRequirements password={newPassword} />
 
               <div className="flex justify-end pt-2">
                 <button

@@ -53,6 +53,7 @@ export class GuardrailNode implements INodeExecutor<GuardrailNodeConfig>{
                 break;
             case 'regex_match':
                 validationResult= this.validateRegex(rawText, config.regexPattern, config.regexFlags);
+                break;
             default:
                 validationResult = { passed: true, sanitizedOutput: rawText };
         }
@@ -182,8 +183,16 @@ private validateStrictJson(text: string): { passed: boolean; reason?: string; sa
 
     if (!pattern) return { passed: true, sanitizedOutput: text };
 
-    try{
-         const regex = new RegExp(pattern, flags || 'i');
+    // 🛡️ ReDoS Protection: Guard against catastrophic regex backtracking on giant payloads
+    if (text.length > 50000) {
+      return {
+        passed: false,
+        reason: 'Input text exceeds 50,000 character limit for regular expression evaluation (ReDoS protection).',
+      };
+    }
+
+    try {
+      const regex = new RegExp(pattern, flags || 'i');
       const matches = regex.test(text);
        if (!matches) {
         return {

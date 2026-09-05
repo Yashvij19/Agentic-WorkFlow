@@ -1,7 +1,7 @@
-import { spawn } from 'child_process';
 import * as path from 'path';
 import { prisma } from '../../../utils/db';
 import { RetrievalResult } from '../types';
+import { GeminiEmbedder } from '../embeddings/GeminiEmbedder';
 
 export class VectorStore {
 
@@ -20,7 +20,7 @@ export class VectorStore {
         filters?: Record<string, string>
     ): Promise<RetrievalResult[]> {
         // 1. Convert search query text to a vector embedding
-        const queryVector = await this.getQueryEmbedding(query);
+        const queryVector = await this.getQueryEmbedding(query, orgId);
         // 2. Fetch candidate chunks from DB
         const whereClause: any = {
             organizationId: orgId,
@@ -93,46 +93,10 @@ export class VectorStore {
 
 
     /**
-   * Spawns embed_worker.py to convert the text query to a 1024-dimensional float vector.
-   */
-
-    private getQueryEmbedding(query: string): Promise<number[]> {
-        return new Promise((resolve, reject) => {
-            const pythonScriptPath = path.join(__dirname, '..', 'ingestion', 'parsers', 'embed_worker.py');
-            const child = spawn("python", [pythonScriptPath]);
-            let stdoutData = '';
-            let stderrData = '';
-
-            child.stdout.on('data', (data) => {
-                stdoutData += data.toString();
-            })
-
-            child.stderr.on('data', (data) => {
-                stderrData += data.toString();
-            })
-
-            child.on('close', (code) => {
-                if (code !== 0) {
-                    return reject(new Error(`Query embedding crashed (code ${code}). Error: ${stderrData}`));
-                }
-                try {
-                    const parsed: number[][] = JSON.parse(stdoutData.trim());
-                    if (parsed && parsed.length > 0) {
-                        resolve(parsed[0]);
-                    } else {
-                        reject(new Error('Embedding worker returned an empty array'));
-                    }
-                } catch (err: any) {
-                    reject(new Error(`Failed to parse query vector. Raw stdout: ${stdoutData}`));
-                }
-            });
-
-            // Write query string inside a JSON array to stdin
-
-            child.stdin.write(JSON.stringify([query]));
-            child.stdin.end();
-
-        });
+     * Converts the text query to a unit-normalized float vector using GeminiEmbedder.
+     */
+    private async getQueryEmbedding(query: string, orgId?: string): Promise<number[]> {
+        return await GeminiEmbedder.getQueryEmbedding(query, orgId);
     }
 
     /**

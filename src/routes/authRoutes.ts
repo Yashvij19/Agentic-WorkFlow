@@ -2,8 +2,18 @@ import { FastifyInstance } from "fastify";
 import { AuthService } from "../services/authService";
 
 
-export async function authRoutes(server:FastifyInstance){
-    server.post('/api/auth/register', async(request ,reply)=>{
+export async function authRoutes(server: FastifyInstance) {
+    // 🛡️ Strict Auth Rate Limits: 5 attempts per minute per IP to stop brute-force & CPU starvation
+    const authRateLimitConfig = {
+        config: {
+            rateLimit: {
+                max: 5,
+                timeWindow: '1 minute',
+            }
+        }
+    };
+
+    server.post('/api/auth/register', authRateLimitConfig, async(request ,reply)=>{
         const {email , password , orgName , orgRole , inviteToken , address , registrationType}=request.body as any;
 
         if(!email || !password || !registrationType){
@@ -36,12 +46,17 @@ export async function authRoutes(server:FastifyInstance){
 
               const user=result.user!;
               
-            const token=server.jwt.sign({
-                id:user.id,
-                organizationId:user.organizationId,
-                email:user.email,
-                role:user.role
-            });
+            const token = server.jwt.sign(
+                {
+                    id: user.id,
+                    organizationId: user.organizationId,
+                    email: user.email,
+                    role: user.role
+                },
+                {
+                    expiresIn: process.env.JWT_EXPIRES_IN || '4h'
+                }
+            );
 
             return reply.code(200).send({
                 message: 'Account registered successfully.',
@@ -59,7 +74,7 @@ export async function authRoutes(server:FastifyInstance){
         }
     });
 
-    server.post('/api/auth/login', async(request , reply)=>{
+    server.post('/api/auth/login', authRateLimitConfig, async(request , reply)=>{
         const {email ,password}=request.body as any;
 
         if(!email || !password){
@@ -69,12 +84,17 @@ export async function authRoutes(server:FastifyInstance){
         try{
             const user=await AuthService.login(email , password);
                
-            const token = server.jwt.sign({
-                id: user.id,
-                organizationId: user.organizationId,
-                email: user.email,
-                role:user.role
-            });
+            const token = server.jwt.sign(
+                {
+                    id: user.id,
+                    organizationId: user.organizationId,
+                    email: user.email,
+                    role: user.role
+                },
+                {
+                    expiresIn: process.env.JWT_EXPIRES_IN || '4h'
+                }
+            );
 
             return reply.code(200).send({
                  message: 'Signed in successfully.',
@@ -89,7 +109,7 @@ export async function authRoutes(server:FastifyInstance){
             });
             
         }catch(error:any){
-            return reply.code(401).send({
+            return reply.code(401).send({ 
                  error: error.message 
             });
         }
@@ -123,7 +143,14 @@ export async function authRoutes(server:FastifyInstance){
         }
     });
 
-    server.post('/api/auth/forgot-password', async (request, reply) => {
+    server.post('/api/auth/forgot-password', {
+        config: {
+            rateLimit: {
+                max: 3,
+                timeWindow: '1 minute',
+            }
+        }
+    }, async (request, reply) => {
         try {
             const { email, newPassword } = (request.body as any) || {};
             if (!email || !newPassword) {

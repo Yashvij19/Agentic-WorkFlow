@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "worker": "tsx watch src/workers/workflowWorker.ts",
-    "build": "prisma generate",
+    "build": "node -e \"try{require('child_process').execSync('pip install markitdown',{stdio:'inherit'})}catch(e){}\" && prisma generate",
     "start": "tsx src/server.ts"
   },
   "keywords": [],

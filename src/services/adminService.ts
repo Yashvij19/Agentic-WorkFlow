@@ -197,6 +197,19 @@ export class AdminService{
             throw new Error("Cannot change the role of a single user.");
         }
 
+        // Prevent demoting the last remaining ADMIN in an organization to prevent orphaned organizations
+        if (userToUpdate.role === 'ADMIN' && role === 'MEMBER') {
+            const adminCount = await prisma.user.count({
+                where: {
+                    organizationId: orgId,
+                    role: 'ADMIN'
+                }
+            });
+            if (adminCount <= 1) {
+                throw new Error("Cannot demote the only remaining administrator in the organization.");
+            }
+        }
+
          return await prisma.user.update({
             where: { id: userId },
             data: { role }
