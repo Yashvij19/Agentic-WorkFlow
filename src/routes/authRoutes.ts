@@ -36,12 +36,17 @@ export async function authRoutes(server:FastifyInstance){
 
               const user=result.user!;
               
-            const token=server.jwt.sign({
-                id:user.id,
-                organizationId:user.organizationId,
-                email:user.email,
-                role:user.role
-            });
+            const token = server.jwt.sign(
+                {
+                    id: user.id,
+                    organizationId: user.organizationId,
+                    email: user.email,
+                    role: user.role
+                },
+                {
+                    expiresIn: process.env.JWT_EXPIRES_IN || '4h'
+                }
+            );
 
             return reply.code(200).send({
                 message: 'Account registered successfully.',
@@ -69,12 +74,17 @@ export async function authRoutes(server:FastifyInstance){
         try{
             const user=await AuthService.login(email , password);
                
-            const token = server.jwt.sign({
-                id: user.id,
-                organizationId: user.organizationId,
-                email: user.email,
-                role:user.role
-            });
+            const token = server.jwt.sign(
+                {
+                    id: user.id,
+                    organizationId: user.organizationId,
+                    email: user.email,
+                    role: user.role
+                },
+                {
+                    expiresIn: process.env.JWT_EXPIRES_IN || '4h'
+                }
+            );
 
             return reply.code(200).send({
                  message: 'Signed in successfully.',

@@ -8,6 +8,11 @@ export async function credentialRoutes(server:FastifyInstance) {
     server.post('/api/credentials' , async(request , reply)=>{
         const {name , apiKey}=request.body as any;
         const orgId=request.user.organizationId;
+        const role = request.user.role;
+
+        if (role !== 'ADMIN' && role !== 'SINGLE') {
+            return reply.code(403).send({ error: 'Access Denied: Only organization administrators can configure credentials.' });
+        }
 
         if (!name || !apiKey) {
             return reply.code(400).send({ error: 'Name and apiKey are required.' });
@@ -37,6 +42,11 @@ export async function credentialRoutes(server:FastifyInstance) {
     server.delete('/api/credentials/:id', async (request, reply) => {
         const { id } = request.params as { id: string };
         const orgId = request.user.organizationId;
+        const role = request.user.role;
+
+        if (role !== 'ADMIN' && role !== 'SINGLE') {
+            return reply.code(403).send({ error: 'Access Denied: Only organization administrators can delete credentials.' });
+        }
 
         try {
             await CredentialService.deleteCredential(orgId, id);

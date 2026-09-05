@@ -1,25 +1,46 @@
 import crypto, { randomBytes } from 'crypto';
-import {prisma} from '../utils/db';
-import { emit } from 'cluster';
+import { prisma } from '../utils/db';
+import { validatePassword } from '../utils/validation';
 
+const PBKDF2_ITERATIONS = 210000;
+const PBKDF2_KEYLEN = 64; // 64 bytes = 512 bits
+const PBKDF2_DIGEST = 'sha512';
 
-export function hashPassword(password:string): string {
+export function hashPassword(password: string): string {
     const salt = crypto.randomBytes(16).toString('hex');
-    const hash=crypto.pbkdf2Sync(password , salt , 1000 , 6,  'sha512').toString('hex');
-
-    return `${salt}:${hash}`
-
+    const hash = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST).toString('hex');
+    return `v2:${PBKDF2_ITERATIONS}:${salt}:${hash}`;
 }
 
+export function verifyPassword(password: string, storedHash: string): boolean {
+    if (!storedHash || typeof storedHash !== 'string') return false;
+    const parts = storedHash.split(':');
 
-export function verifyPassword(password:string , storedHash:string) :boolean{
+    // Modern format: "v2:<iterations>:<salt>:<hash>"
+    if (parts.length === 4 && parts[0] === 'v2') {
+        const iterations = parseInt(parts[1], 10) || PBKDF2_ITERATIONS;
+        const salt = parts[2];
+        const hash = parts[3];
+        const checkHash = crypto.pbkdf2Sync(password, salt, iterations, PBKDF2_KEYLEN, PBKDF2_DIGEST).toString('hex');
+        try {
+            return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(checkHash, 'hex'));
+        } catch {
+            return false;
+        }
+    }
 
-    const parts=storedHash.split(':');
-    if(parts.length!==2) return false;
-    const [salt , hash]=parts;
-    const checkHash=crypto.pbkdf2Sync(password , salt , 1000 , 6 , 'sha512').toString('hex');
-    return hash===checkHash;
+    // Legacy format: "<salt>:<hash>" (1,000 iterations, 6 bytes)
+    if (parts.length === 2) {
+        const [salt, hash] = parts;
+        const checkHash = crypto.pbkdf2Sync(password, salt, 1000, 6, 'sha512').toString('hex');
+        try {
+            return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(checkHash, 'hex'));
+        } catch {
+            return hash === checkHash;
+        }
+    }
 
+    return false;
 }
 
 export class AuthService{
@@ -42,7 +63,12 @@ export class AuthService{
         });
 
         if (existing) {
-            throw new Error("User with this email already exists.")
+            throw new Error("User with this email already exists.");
+        }
+
+        const passValidation = validatePassword(passwordPlain);
+        if (!passValidation.isValid) {
+            throw new Error(passValidation.error);
         }
 
         const passwordHash = hashPassword(passwordPlain);
@@ -277,8 +303,9 @@ export class AuthService{
     }
 
     static async resetPassword(userId: string, oldPasswordPlain: string, newPasswordPlain: string) {
-        if (!newPasswordPlain || newPasswordPlain.length < 6) {
-            throw new Error("New password must be at least 6 characters.");
+        const passValidation = validatePassword(newPasswordPlain);
+        if (!passValidation.isValid) {
+            throw new Error(passValidation.error);
         }
 
         const user = await prisma.user.findUnique({
@@ -304,24 +331,9 @@ export class AuthService{
     }
 
     static async forgotPassword(email: string, newPasswordPlain: string) {
-        if (!email || !newPasswordPlain || newPasswordPlain.length < 6) {
-            throw new Error("Valid email and a new password with at least 6 characters are required.");
-        }
-
-        const user = await prisma.user.findUnique({
-            where: { email: email.toLowerCase().trim() }
-        });
-
-        if (!user) {
-            throw new Error("No account found with this email address.");
-        }
-
-        const newHash = hashPassword(newPasswordPlain);
-        await prisma.user.update({
-            where: { id: user.id },
-            data: { passwordHash: newHash }
-        });
-
-        return { message: "Password has been reset successfully. You can now log in with your new password." };
+        // Prevent anonymous password takeover
+        throw new Error(
+            "Self-service anonymous password reset without verification is disabled for security. Please contact your organization administrator or use reset password from your account profile."
+        );
     }
 }

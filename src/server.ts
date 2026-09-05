@@ -10,6 +10,7 @@ import { workflowRoutes } from './routes/workflowRoutes';
 import { credentialRoutes } from './routes/credentialRoutes';
 import { adminRoutes } from './routes/adminRoutes';
 import { ragRoutes } from './routes/ragRoutes';
+import { prisma } from './utils/db';
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
     throw new Error("JWT_SECRET environment variable is required");
@@ -72,6 +73,9 @@ declare module 'fastify'{
 
 server.register(fastifyJwt, {
   secret: jwtSecret,
+  sign: {
+    expiresIn: process.env.JWT_EXPIRES_IN || '4h'
+  }
 });
 
 server.register(webSocket);
@@ -108,10 +112,28 @@ server.get('/health', async(request , reply)=>{
 server.decorate('authenticate' , async function (request:any, reply:any){
     try{
         await request.jwtVerify();
+        if (!request.user || !request.user.id) {
+            return reply.code(401).send({
+                error: 'Unauthorized: Invalid token payload.'
+            });
+        }
+        // Verify user still exists in database and synchronizes current role
+        const dbUser = await prisma.user.findUnique({
+            where: { id: request.user.id },
+            select: { id: true, role: true, organizationId: true }
+        });
+        if (!dbUser) {
+            return reply.code(401).send({
+                error: 'Unauthorized: User account does not exist or has been deleted.'
+            });
+        }
+        // Synchronize fresh DB role in case user was demoted or promoted
+        request.user.role = dbUser.role;
+        request.user.organizationId = dbUser.organizationId;
     }catch(err){
-        reply.code(401).send({
-            error: 'Unauthorized: Invalid credentials'
-        })
+        return reply.code(401).send({
+            error: 'Unauthorized: Invalid or expired credentials'
+        });
     }
 })
 

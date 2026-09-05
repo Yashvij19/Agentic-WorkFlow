@@ -499,15 +499,22 @@ export async function ragRoutes(server: FastifyInstance) {
 
     /**
    * GET /api/rag/traces/:executionId/:nodeId
-   * Retrieves telemetry trace for an executed RAG node.
+   * Retrieves telemetry trace for an executed RAG node with tenant isolation.
    */
     server.get(
         '/api/rag/traces/:executionId/:nodeId',
         async (request: FastifyRequest, reply: FastifyReply) => {
+            const orgId = request.user.organizationId;
             const { executionId, nodeId } = request.params as { executionId: string, nodeId: string };
             try {
                 const trace = await prisma.ragTrace.findFirst({
-                    where: { executionId, nodeId },
+                    where: { 
+                        executionId, 
+                        nodeId,
+                        execution: {
+                            organizationId: orgId
+                        }
+                    },
                     orderBy: { createdAt: 'desc' }
                 });
                 if (!trace) {
@@ -524,15 +531,21 @@ export async function ragRoutes(server: FastifyInstance) {
 
     /**
    * GET /api/rag/trace/:traceId
-   * Retrieves telemetry trace directly by traceId.
+   * Retrieves telemetry trace directly by traceId with tenant isolation.
    */
     server.get(
         '/api/rag/trace/:traceId',
         async (request: FastifyRequest, reply: FastifyReply) => {
+            const orgId = request.user.organizationId;
             const { traceId } = request.params as { traceId: string };
             try {
-                const trace = await prisma.ragTrace.findUnique({
-                    where: { id: traceId },
+                const trace = await prisma.ragTrace.findFirst({
+                    where: { 
+                        id: traceId,
+                        execution: {
+                            organizationId: orgId
+                        }
+                    },
                 });
                 if (!trace) {
                     return reply.code(404).send({ error: 'RAG Trace not found.' });
@@ -585,11 +598,14 @@ export async function ragRoutes(server: FastifyInstance) {
     server.get('/api/rag/export/:documentId', async (request: FastifyRequest, reply: FastifyReply) => {
 
         const orgId = request.user.organizationId;
+        const userId = request.user.id;
+        const role = request.user.role;
         const { documentId } = request.params as { documentId: string };
         try {
             const doc = await prisma.document.findFirst({
                 where: { id: documentId, organizationId: orgId },
                 include: {
+                    knowledgeSource: true,
                     chunks: {
                         include: {
                             metadata: true
@@ -601,15 +617,22 @@ export async function ragRoutes(server: FastifyInstance) {
                 return reply.code(404).send({ error: 'Document not found.' });
             }
 
+            // Verify member personal knowledge base privacy
+            if (role === 'MEMBER' && doc.knowledgeSource) {
+                if (doc.knowledgeSource.scope === 'PERSONAL' && doc.knowledgeSource.createdByUserId !== userId) {
+                    return reply.code(403).send({ error: 'Access Denied: You cannot export documents from another member\'s personal knowledge base.' });
+                }
+            }
+
             const yamlHeader = `---
-                title: "${doc.name}"
-                id: "${doc.id}"
-                mimeType: "${doc.mimeType || 'text/markdown'}"
-                source: "${doc.source || 'Local Upload'}"
-                chunkCount: ${doc.chunks.length}
-                exportedAt: "${new Date().toISOString()}"
-                ---
-                `;
+title: "${doc.name}"
+id: "${doc.id}"
+mimeType: "${doc.mimeType || 'text/markdown'}"
+source: "${doc.source || 'Local Upload'}"
+chunkCount: ${doc.chunks.length}
+exportedAt: "${new Date().toISOString()}"
+---
+`;
             const okfContent = `${yamlHeader}${doc.normalizedContent || doc.rawContent}`;
 
             reply.header('Content-Type', 'text/markdown; charset=utf-8');
