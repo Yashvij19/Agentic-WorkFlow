@@ -246,18 +246,21 @@ export class IngestionManager {
     chunkSize: number,
     chunkOverlap: number
   ): Promise<NormalizedDocument> {
-    let tempFilePath = '';
-    const isTempFile = !!input.contentBuffer;
+    if (!input.contentBuffer) {
+      throw new Error(
+        'Ingestion security error: Direct server file path parsing is disabled. A file content buffer is required.'
+      );
+    }
+
+    const tempDir = path.join(__dirname, 'temp');
+    await fs.mkdir(tempDir, { recursive: true });
+    
+    // Sanitize filename to prevent path traversal (e.g., ../../etc/passwd)
+    const safeBasename = path.basename(input.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const tempFilePath = path.join(tempDir, `ingest_temp_${Date.now()}_${safeBasename}`);
 
     try {
-      if (isTempFile && input.contentBuffer) {
-        const tempDir = path.join(__dirname, 'temp');
-        await fs.mkdir(tempDir, { recursive: true });
-        tempFilePath = path.join(tempDir, `ingest_temp_${Date.now()}_${input.name}`);
-        await fs.writeFile(tempFilePath, input.contentBuffer);
-      } else {
-        tempFilePath = input.source;
-      }
+      await fs.writeFile(tempFilePath, input.contentBuffer);
 
       const scriptPath = path.join(__dirname, 'parsers', 'rag_worker.py');
 
@@ -300,7 +303,7 @@ export class IngestionManager {
 
       return parsedData;
     } finally {
-      if (isTempFile && tempFilePath) {
+      if (tempFilePath) {
         try {
           await fs.unlink(tempFilePath);
         } catch (err) {

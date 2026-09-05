@@ -1,5 +1,6 @@
 import { INodeExecutor, ExecutionContext, NodeExecutionResult } from '../types';
 import { injectVariables } from '../../utils/interpolation';
+import { validateSafeUrl } from '../../utils/ssrfShield';
 
 export interface ApiNodeConfig {
   url: string;
@@ -70,6 +71,13 @@ export class ApiNode implements INodeExecutor<ApiNodeConfig> {
       if (queryString) {
         hydratedUrl += (hydratedUrl.includes('?') ? '&' : '?') + queryString;
       }
+    }
+
+    // 🛡️ SSRF Shield: Validate that the destination URL is safe
+    const ssrfCheck = validateSafeUrl(hydratedUrl);
+    if (!ssrfCheck.isSafe) {
+      ctx.emitTelemetry('FAILED', `SSRF Protection Triggered: ${ssrfCheck.error}`);
+      throw new Error(`[ApiNode SSRF Protection]: ${ssrfCheck.error}`);
     }
 
     ctx.emitTelemetry('RUNNING', `Sending ${method} request to: ${hydratedUrl}`);
@@ -144,8 +152,8 @@ export class ApiNode implements INodeExecutor<ApiNodeConfig> {
       }
     }
 
-    // 5. Execute HTTP call with AbortController timeout protection
-    const timeoutMs = config.timeoutMs ?? 15000;
+    // 5. Execute HTTP call with AbortController timeout protection (Cap at 30 seconds max)
+    const timeoutMs = Math.min(config.timeoutMs ?? 15000, 30000);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -167,18 +175,30 @@ export class ApiNode implements INodeExecutor<ApiNodeConfig> {
       clearTimeout(timer);
     }
 
-    // 6. Parse Response Body
-    let responseData: any;
+    // 🛡️ Guard against oversized response payloads to protect server memory (Max 10MB)
+    const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10MB
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BYTES) {
+      throw new Error(
+        `[ApiNode Error]: Response payload size (${Math.round(parseInt(contentLength, 10) / (1024 * 1024))}MB) exceeds the 10MB server safety limit.`
+      );
+    }
+
+    // 6. Parse Response Body with chunk length check
+    const rawText = await response.text();
+    if (rawText.length > MAX_RESPONSE_BYTES) {
+      throw new Error(`[ApiNode Error]: Response payload exceeds the 10MB server safety limit.`);
+    }
+
+    let responseData: any = rawText;
     const contentType = response.headers.get('content-type') || '';
 
     if (contentType.includes('application/json')) {
       try {
-        responseData = await response.json();
+        responseData = JSON.parse(rawText);
       } catch {
-        responseData = await response.text();
+        responseData = rawText;
       }
-    } else {
-      responseData = await response.text();
     }
 
     const durationMs = Date.now() - startTime;

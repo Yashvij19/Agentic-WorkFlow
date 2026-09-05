@@ -32,12 +32,40 @@ export class PythonCodeNode implements INodeExecutor<PythonCodeConfig> {
 
     ctx.emitTelemetry('RUNNING', `Executing Python script (Timeout: ${timeoutMs}ms)...`);
 
-    // 1. Prepare Python Runner Harness
-    // Injects inputs and context as JSON, executes user's main(), and prints output marker
+    // 1. Prepare Hardened Python Runner Harness
+    // Injects security audit hook, sanitizes inputs, executes user's main(), and emits boundaries
     const runnerScript = `
 import json
 import sys
+import os
 import traceback
+
+# 🛡️ 1. Resource Limits (POSIX / Linux / Render Production)
+# Hard caps RAM to 128MB so memory bombs cannot trigger host Linux OOM killer
+try:
+    import resource
+    MAX_RAM_BYTES = 128 * 1024 * 1024  # 128 MB max memory
+    resource.setrlimit(resource.RLIMIT_AS, (MAX_RAM_BYTES, MAX_RAM_BYTES))
+    resource.setrlimit(resource.RLIMIT_CPU, (25, 25))  # 25 seconds max CPU time
+except (ImportError, Exception):
+    pass
+
+# 🛡️ 2. CPython Runtime Audit Hook Security Sandbox
+# Intercepts and blocks dangerous OS operations before they can execute
+def _sandbox_audit_hook(event, args):
+    blocked_events = {
+        'os.system', 'os.spawn', 'os.exec', 'os.posix_spawn', 'os.kill', 'os.killpg',
+        'os.fork', 'os.forkpty', 'pty.spawn',
+        'subprocess.Popen', 'subprocess.call', 'subprocess.check_output',
+        'ctypes.dlopen', 'ctypes.dlsym'
+    }
+    if event in blocked_events:
+        raise PermissionError(f"Security Alert: Execution of '{event}' is strictly forbidden in the workflow sandbox.")
+
+try:
+    sys.addaudithook(_sandbox_audit_hook)
+except Exception:
+    pass
 
 try:
     # Load inputs and workflowContext passed as CLI args
@@ -64,12 +92,33 @@ except Exception as e:
 `;
 
     return new Promise((resolve, reject) => {
-      // 2. Spawn isolated Python process
+      // 2. Spawn isolated Python process with sterile environment (Secrets Scrubbed!)
+      const safeEnv: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH || '',
+        SystemRoot: process.env.SystemRoot || '',
+        WINDIR: process.env.WINDIR || '',
+        TEMP: process.env.TEMP || '',
+        TMP: process.env.TMP || '',
+        PYTHONIOENCODING: 'utf-8',
+        // Note: DATABASE_URL, ENCRYPTION_KEY, JWT_SECRET are deliberately omitted!
+      };
+
       const pyProcess = spawn(
         'python',
         ['-c', runnerScript, JSON.stringify(inputs || {}), JSON.stringify(ctx.workflowContext || {})],
-        { timeout: timeoutMs }
+        { 
+          timeout: timeoutMs,
+          killSignal: 'SIGTERM',
+          env: safeEnv,
+        }
       );
+
+      // Watchdog: If process does not exit within 1s of timeout, force SIGKILL
+      const forceKillTimer = setTimeout(() => {
+        try {
+          pyProcess.kill('SIGKILL');
+        } catch (_) {}
+      }, timeoutMs + 1000);
 
       let stdoutData = '';
       let stderrData = '';
@@ -84,9 +133,10 @@ except Exception as e:
 
       // 3. Handle Process Completion / Timeout
       pyProcess.on('close', (code, signal) => {
+        clearTimeout(forceKillTimer);
         const durationMs = Date.now() - startTime;
 
-        if (signal === 'SIGTERM' || durationMs >= timeoutMs) {
+        if (signal === 'SIGTERM' || signal === 'SIGKILL' || durationMs >= timeoutMs) {
           ctx.emitTelemetry('FAILED', `Python script execution timed out after ${timeoutMs}ms`);
           return reject(new Error(`[PythonCodeNode Error]: Execution timed out after ${timeoutMs}ms`));
         }

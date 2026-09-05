@@ -1,17 +1,115 @@
 import { INodeExecutor, ExecutionContext, NodeExecutionResult } from '../types';
-import vm from 'node:vm';
+import { Worker } from 'node:worker_threads';
 
 export interface CustomCodeConfig {
   /** The raw JavaScript code written by the user in the Monaco Editor */
   code?: string;
-  /** Execution timeout in milliseconds (default: 10000ms = 10s) */
+  /** Execution timeout in milliseconds (default: 10000ms = 10s, max: 30000ms) */
   timeoutMs?: number;
 }
+
+/**
+ * Isolated Worker Thread runner script.
+ * Executed in a completely separate V8 thread so synchronous infinite loops
+ * and memory bombs never block or crash the main server's event loop.
+ */
+const WORKER_RUNNER_SCRIPT = `
+const { parentPort, workerData } = require('node:worker_threads');
+const vm = require('node:vm');
+
+(async () => {
+  const { rawCode, inputs, context, timeoutMs } = workerData;
+  const logs = [];
+  const pushLog = (type, args) => {
+    const line = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    logs.push('[' + type + '] ' + line);
+  };
+
+  // 1. Build Restricted Sandbox
+  const sandbox = {
+    inputs,
+    context,
+    $input: inputs,
+    $node: (nodeId) => {
+      const target = context[nodeId];
+      return target ? target.output : null;
+    },
+    console: {
+      log: (...args) => pushLog('LOG', args),
+      warn: (...args) => pushLog('WARN', args),
+      error: (...args) => pushLog('ERROR', args),
+    },
+    JSON,
+    Math,
+    Date,
+    parseInt,
+    parseFloat,
+    encodeURIComponent,
+    decodeURIComponent,
+    Boolean,
+    Number,
+    String,
+    Array,
+    Object,
+    RegExp,
+    Map,
+    Set,
+    process: undefined,
+    require: undefined,
+    Buffer: undefined,
+    module: { exports: null },
+    exports: {},
+  };
+
+  const vmContext = vm.createContext(sandbox);
+
+  try {
+    const wrappedScript = new vm.Script(\`
+      (async function() {
+        'use strict';
+        try {
+          Object.defineProperty(Object.prototype, 'constructor', {
+            get: function() { return undefined; },
+            set: function() {},
+            configurable: false
+          });
+          Object.defineProperty(Function.prototype, 'constructor', {
+            get: function() { return undefined; },
+            set: function() {},
+            configurable: false
+          });
+        } catch (_) {}
+
+        \${rawCode}
+
+        if (typeof module.exports === 'function') {
+          return await module.exports(inputs, context);
+        } else if (typeof exports.default === 'function') {
+          return await exports.default(inputs, context);
+        } else if (typeof main === 'function') {
+          return await main(inputs, context);
+        } else {
+          return module.exports || exports;
+        }
+      })()
+    \`);
+
+    const output = await wrappedScript.runInContext(vmContext, {
+      timeout: timeoutMs,
+      displayErrors: true,
+    });
+
+    parentPort.postMessage({ success: true, output, logs });
+  } catch (err) {
+    parentPort.postMessage({ success: false, error: err.message || String(err), logs });
+  }
+})();
+`;
 
 export class CustomCodeNode implements INodeExecutor<CustomCodeConfig> {
   public readonly type = 'custom_code';
   public readonly name = 'Custom Code (JS)';
-  public readonly description = 'Executes sandboxed custom JavaScript with dynamic access to any node outputs and workflow context.';
+  public readonly description = 'Executes sandboxed custom JavaScript in an isolated worker thread with dynamic access to node outputs and workflow context.';
 
   public async execute(
     config: CustomCodeConfig,
@@ -31,105 +129,92 @@ export class CustomCodeNode implements INodeExecutor<CustomCodeConfig> {
       };
     }
 
-    ctx.emitTelemetry('RUNNING', `Executing custom JavaScript function (Timeout: ${timeoutMs}ms)...`);
+    ctx.emitTelemetry('RUNNING', `Executing custom JavaScript in isolated Worker Thread (Timeout: ${timeoutMs}ms, Max Heap: 64MB)...`);
 
-    // 1. Logs Collector (Captures all console.log, console.warn, console.error)
-    const logs: string[] = [];
-    const pushLog = (type: string, args: any[]) => {
-      const line = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
-      logs.push(`[${type}] ${line}`);
-    };
+    // Clone pure data to detach from host prototype objects before passing to worker
+    const cleanInputs = inputs !== undefined ? JSON.parse(JSON.stringify(inputs)) : {};
+    const cleanContext = ctx.workflowContext !== undefined ? JSON.parse(JSON.stringify(ctx.workflowContext)) : {};
 
-    // 2. Build the Sandbox with Dynamic Node Access
-    const sandbox = {
-      // Direct access to incoming inputs from previous step
-      inputs: inputs || {},
-      
-      // Complete blackboard of all nodes in the workflow: context['nodeId'].output
-      context: ctx.workflowContext || {},
-      
-      // Helper function to query any node by ID: $node('login_api').token
-      $node: (nodeId: string) => {
-        const target = ctx.workflowContext[nodeId];
-        return target ? target.output : null;
-      },
-      
-      // Helper for direct inputs
-      $input: inputs,
+    return new Promise((resolve, reject) => {
+      let isSettled = false;
 
-      // Full Console Logging
-      console: {
-        log: (...args: any[]) => pushLog('LOG', args),
-        warn: (...args: any[]) => pushLog('WARN', args),
-        error: (...args: any[]) => pushLog('ERROR', args),
-      },
-      
-      // Safe Utilities
-      JSON,
-      Math,
-      Date,
-      parseInt,
-      parseFloat,
-      encodeURIComponent,
-      decodeURIComponent,
-      module: { exports: null as any },
-      exports: {} as any,
-    };
-
-    // 3. Create the Isolated VM Context
-    const vmContext = vm.createContext(sandbox);
-
-    try {
-      // Wrap code in an async runner to support async/await and promises
-      const script = new vm.Script(`
-        (async function() {
-          ${rawCode}
-          
-          if (typeof module.exports === 'function') {
-            return await module.exports(inputs, context);
-          } else if (typeof exports.default === 'function') {
-            return await exports.default(inputs, context);
-          } else if (typeof main === 'function') {
-            return await main(inputs, context);
-          } else {
-            return module.exports || exports;
-          }
-        })()
-      `);
-
-      // 4. Run user script with strict 10s timeout
-      const output = await script.runInContext(vmContext, {
-        timeout: timeoutMs,
-        displayErrors: true,
+      // 🛡️ Spawn worker thread with a hard 64MB memory cap to protect Render's 512MB RAM
+      const worker = new Worker(WORKER_RUNNER_SCRIPT, {
+        eval: true,
+        workerData: {
+          rawCode,
+          inputs: cleanInputs,
+          context: cleanContext,
+          timeoutMs,
+        },
+        resourceLimits: {
+          maxOldGenerationSizeMb: 64,
+          maxYoungGenerationSizeMb: 16,
+        },
       });
 
-      const durationMs = Date.now() - startTime;
+      // Watchdog Timer: Terminates worker thread if it exceeds timeout (e.g. infinite loops)
+      const timer = setTimeout(async () => {
+        if (isSettled) return;
+        isSettled = true;
+        try {
+          await worker.terminate();
+        } catch (_) {}
+        ctx.emitTelemetry('FAILED', `Custom code execution timed out after ${timeoutMs}ms (Worker terminated)`);
+        reject(new Error(`[CustomCodeNode Error]: Execution timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
 
-      // 5. Emit all collected logs to frontend live telemetry
-      if (logs.length > 0) {
-        ctx.emitTelemetry('RUNNING', `Console Logs:\n${logs.join('\n')}`);
-      }
+      worker.on('message', async (msg) => {
+        if (isSettled) return;
+        isSettled = true;
+        clearTimeout(timer);
+        try {
+          await worker.terminate();
+        } catch (_) {}
 
-      ctx.emitTelemetry('COMPLETED', `Custom code executed successfully in ${durationMs}ms`);
+        // Emit captured console logs
+        if (msg.logs && msg.logs.length > 0) {
+          ctx.emitTelemetry('RUNNING', `Console Logs:\n${msg.logs.join('\n')}`);
+        }
 
-      return {
-        success: true,
-        output,
-        metrics: {
-          durationMs,
-          logsCount: logs.length,
-        },
-      };
-    } catch (err: any) {
-      const durationMs = Date.now() - startTime;
-      const errorMessage = err.message || 'Error executing custom JavaScript code';
+        if (msg.success) {
+          const durationMs = Date.now() - startTime;
+          ctx.emitTelemetry('COMPLETED', `Custom code executed successfully in ${durationMs}ms`);
+          resolve({
+            success: true,
+            output: msg.output,
+            metrics: {
+              durationMs,
+              logsCount: msg.logs?.length || 0,
+            },
+          });
+        } else {
+          ctx.emitTelemetry('FAILED', `Custom code runtime error: ${msg.error}`);
+          reject(new Error(`[CustomCodeNode Error]: ${msg.error}`));
+        }
+      });
 
-      if (logs.length > 0) {
-        ctx.emitTelemetry('RUNNING', `Console Logs before error:\n${logs.join('\n')}`);
-      }
-      ctx.emitTelemetry('FAILED', `Custom code runtime error: ${errorMessage}`);
+      worker.on('error', async (err: any) => {
+        if (isSettled) return;
+        isSettled = true;
+        clearTimeout(timer);
+        try {
+          await worker.terminate();
+        } catch (_) {}
 
-      throw new Error(`[CustomCodeNode Error]: ${errorMessage}`);
-    }
+        const msg = err.message || String(err);
+        ctx.emitTelemetry('FAILED', `Custom code worker crash: ${msg}`);
+        reject(new Error(`[CustomCodeNode Error]: ${msg}`));
+      });
+
+      worker.on('exit', (code) => {
+        if (isSettled) return;
+        isSettled = true;
+        clearTimeout(timer);
+        if (code !== 0) {
+          reject(new Error(`[CustomCodeNode Error]: Worker stopped with exit code ${code}`));
+        }
+      });
+    });
   }
 }

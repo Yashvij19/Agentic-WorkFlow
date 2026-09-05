@@ -21,6 +21,7 @@ if (!jwtSecret) {
 const isProduction = process.env.NODE_ENV === 'production';
 
 const server: FastifyInstance = Fastify({
+    trustProxy: true,
     logger: isProduction
         ? true
         : {
@@ -81,26 +82,31 @@ server.register(fastifyJwt, {
 server.register(webSocket);
 server.register(idempotencyPulgins);
 
-// Register the Rate Limiting Shield
-server.register(fastifyRateLimit,{
-    global:false, // We don't want to limit every single route globally (like /health)
-    redis:redisConnection,
-    keyGenerator:(request:any)=>{
-        return request.user?request.user.organizationId:request.ip;
+// 🛡️ Global Rate Limiting Shield: 120 req/min baseline with multi-tenant grouping and proxy support
+server.register(fastifyRateLimit, {
+    global: true,
+    max: 120,
+    timeWindow: '1 minute',
+    redis: redisConnection,
+    skipOnError: true,
+    allowList: (request: any) => {
+        return request.url === '/health' || request.url.startsWith('/api/workflow/live');
     },
-
-    errorResponseBuilder:(request,context)=>{
+    keyGenerator: (request: any) => {
+        return request.user?.organizationId || request.ip;
+    },
+    errorResponseBuilder: (request, context) => {
         return {
-            statusCode:429,
-            error:'Too Many Requests',
-            message:`Rate limit exceeded. You are allowed ${context.max} requests per ${context.after}. Please try again later.`,
+            statusCode: 429,
+            error: 'Too Many Requests',
+            message: `Rate limit exceeded. You are allowed ${context.max} requests per ${context.after}. Please try again later.`,
         };
     },
 });
 
 
-// A simple health check route to verify the server is breathing
-server.get('/health', async(request , reply)=>{
+// A simple health check route to verify the server is breathing (exempt from rate limits)
+server.get('/health', { config: { rateLimit: false } }, async(request , reply)=>{
     return {
         status:'ok',
         message:"API Gateway is online"

@@ -206,7 +206,14 @@ export async function ragRoutes(server: FastifyInstance) {
      * POST /api/rag/ingest
      * Ingests a new document into the knowledge base with RBAC verification.
      */
-    server.post('/api/rag/ingest', async (request: FastifyRequest, reply: FastifyReply) => {
+    server.post('/api/rag/ingest', {
+        config: {
+            rateLimit: {
+                max: 5,
+                timeWindow: '1 minute',
+            }
+        }
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
         const orgId = request.user.organizationId;
         const userId = request.user.id;
         const body = request.body as {
@@ -219,9 +226,9 @@ export async function ragRoutes(server: FastifyInstance) {
             knowledgeSourceId?: string;
         };
 
-        if (!body.name || (!body.content && !body.base64Buffer && !body.source)) {
+        if (!body.name || (!body.content && !body.base64Buffer)) {
             return reply.code(400).send({
-                error: 'Document name and content (or source) are required for ingestion.',
+                error: 'Document name and content (text or base64Buffer) are required for ingestion. Server-side local file paths are not permitted.',
             });
         }
 
@@ -321,7 +328,14 @@ export async function ragRoutes(server: FastifyInstance) {
      * Interactive test endpoint to query the RAG system.
      */
 
-     server.post('/api/rag/query', async (request: FastifyRequest, reply: FastifyReply) => {
+     server.post('/api/rag/query', {
+         config: {
+             rateLimit: {
+                 max: 25,
+                 timeWindow: '1 minute',
+             }
+         }
+     }, async (request: FastifyRequest, reply: FastifyReply) => {
 
         const orgId = request.user.organizationId;
         const { query, config, executionId, nodeId, metadataFilters } = request.body as {

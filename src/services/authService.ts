@@ -225,8 +225,8 @@ export class AuthService{
 
         const isValid=verifyPassword(passwordPlain , user.passwordHash);
 
-        if(!isValid){
-            throw new Error('Invalid password.');
+        if (!isValid) {
+            throw new Error('Invalid email or password.');
         }
         return user;
     }
