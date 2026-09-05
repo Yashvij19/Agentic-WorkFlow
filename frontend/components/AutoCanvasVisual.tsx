@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import AetherFlowLogo from '@/components/AetherFlowLogo';
 
 interface AutoCanvasVisualProps {
   totalFrames?: number;
@@ -195,9 +196,7 @@ export default function AutoCanvasVisual({
       <div className="relative z-10 flex flex-col gap-1.5 text-left">
         <Link href="/" className="group/brand flex flex-col gap-1 pointer-events-auto cursor-pointer">
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold tracking-tight text-white group-hover/brand:text-slate-200 transition-colors">
-              FlowAgent
-            </span>
+            <AetherFlowLogo size={24} showText textSize="text-lg" />
           </div>
           <span className="text-[10px] font-medium text-slate-400 group-hover/brand:text-slate-300 transition-colors tracking-wide">
             Where autonomous agents become workflows.

@@ -207,55 +207,163 @@ export async function workflowRoutes(server: FastifyInstance) {
 
      // 6. Get failed jobs from queue
 
+     // 6. Get failed jobs from Dead Letter Queue (DLQ) with rich diagnostics & pagination
     server.get('/api/workflows/failed-jobs', async (request, reply) => {
         const orgId = request.user.organizationId;
         const userId = request.user.id;
 
-      try{
-            const { role, permissions } =  await workflowService.getUserAccess(userId);
-            const failedJobs = await workflowQueue.getFailed();
-            
-            // Filter to only this organization's jobs
-            const orgJobs = failedJobs.filter(job => job.data.organizationId === orgId);
-            let allowedJobs = orgJobs;
-            if(role!=='ADMIN'){
-                const canViewTeamFailed=role==='MEMBER' && permissions.canViewTeamFailedExecutions===true;
+        try {
+            const { role, permissions } = await workflowService.getUserAccess(userId);
 
-                if(!canViewTeamFailed){
-                    const executionIds=orgJobs.map(j=>j.data.executionId).filter(Boolean);
-                    const userExecutions=await prisma.workflowExecution.findMany({
-                        where:{
-                            id:{
-                                in:executionIds
+            // 🛡️ Strict RBAC Permission Check
+            const hasAccess = 
+                role === 'SINGLE' || 
+                role === 'ADMIN' || 
+                (role === 'MEMBER' && (permissions?.canViewTeamFailedExecutions === true || permissions?.canViewDLQ === true));
+
+            if (!hasAccess) {
+                return reply.code(403).send({ 
+                    error: 'Access denied: You do not have permission to view the Dead Letter Queue. Contact your administrator.' 
+                });
+            }
+
+            const query = request.query as any;
+            const page = Math.max(1, parseInt(query?.page, 10) || 1);
+            const limit = Math.min(50, Math.max(1, parseInt(query?.limit, 10) || 10));
+            const search = (query?.search || '').trim();
+            const skip = (page - 1) * limit;
+
+            const whereClause: any = {
+                organizationId: orgId,
+                status: 'FAILED',
+            };
+
+            if (search) {
+                whereClause.OR = [
+                    { id: { contains: search, mode: 'insensitive' } },
+                    { workflow: { name: { contains: search, mode: 'insensitive' } } },
+                ];
+            }
+
+            const [totalCount, failedExecutions, bullFailedJobs] = await Promise.all([
+                prisma.workflowExecution.count({ where: whereClause }),
+                prisma.workflowExecution.findMany({
+                    where: whereClause,
+                    orderBy: { completedAt: 'desc' },
+                    skip,
+                    take: limit,
+                    include: {
+                        workflow: {
+                            select: {
+                                id: true,
+                                name: true,
+                                status: true,
+                                description: true,
                             },
-                            triggeredByUserId:userId
                         },
-                        select:{
-                            id:true
-                        }
-                    });
-                    const userExecutionIdsSet=new Set(userExecutions.map(e=>e.id));
-                    allowedJobs=orgJobs.filter(job=>
-                        userExecutionIdsSet.has(job.data.executionId)
-                    );
-                }
-                }
-                         const formatted = allowedJobs.map((job) => ({
-                        executionId: job.data.executionId,
-                        workflowId: job.data.workflowId,
-                        failedReasons: job.failedReason,
-                        failedAt: new Date(job.finishedOn || 0).toString(),
-                    }));
-                    return reply.send({
-                        message: `Found ${formatted.length} jobs in the Dead Letter Queue.`,
-                        deadLetters: formatted,
-                    });
+                        triggeredByUser: {
+                            select: {
+                                id: true,
+                                email: true,
+                            },
+                        },
+                        logs: {
+                            orderBy: { createdAt: 'desc' },
+                            select: {
+                                id: true,
+                                nodeId: true,
+                                status: true,
+                                outputData: true,
+                                createdAt: true,
+                            },
+                        },
+                    },
+                }),
+                workflowQueue.getFailed(0, 100).catch(() => []),
+            ]);
+
+            const bullMap = new Map<string, any>(
+                bullFailedJobs.map(j => [j.data?.executionId || j.id, j])
+            );
+
+            const formatted = failedExecutions.map((exec) => {
+                const bullJob = bullMap.get(exec.id);
+                const failedLog = exec.logs.find(l => l.status === 'FAILED') || exec.logs[0];
+                const rawError = (failedLog?.outputData as any)?.error || bullJob?.failedReason || 'Workflow execution failed.';
+                const attemptsMade = bullJob?.attemptsMade ?? (exec.logs.length > 0 ? 1 : 1);
+                const maxAttempts = bullJob?.opts?.attempts ?? 3;
+                const isUnrecoverable = 
+                    rawError.toLowerCase().includes('unrecoverable') || 
+                    rawError.toLowerCase().includes('missing') || 
+                    rawError.toLowerCase().includes('credential') || 
+                    attemptsMade < maxAttempts;
+
+                const startedMs = new Date(exec.startedAt).getTime();
+                const completedMs = exec.completedAt ? new Date(exec.completedAt).getTime() : startedMs;
+                const durationMs = Math.max(0, completedMs - startedMs);
+
+                return {
+                    executionId: exec.id,
+                    workflowId: exec.workflowId,
+                    workflowName: exec.workflow?.name || 'Untitled Workflow',
+                    workflowDescription: exec.workflow?.description || '',
+                    workflowStatus: exec.workflow?.status || 'ACTIVE',
+                    triggeredBy: exec.triggeredByUser?.email || 'Automated / System Trigger',
+                    triggeredByUserId: exec.triggeredByUserId,
+                    startedAt: exec.startedAt,
+                    completedAt: exec.completedAt,
+                    durationMs,
+                    failedNodeId: failedLog?.nodeId || 'unknown_node',
+                    failureReason: rawError,
+                    attemptsMade,
+                    maxAttempts,
+                    isUnrecoverable,
+                    logs: exec.logs,
+                };
+            });
+
+            return reply.send({
+                totalCount,
+                totalPages: Math.ceil(totalCount / limit) || 1,
+                currentPage: page,
+                pageSize: limit,
+                redisFailedCount: bullFailedJobs.filter(j => j.data?.organizationId === orgId).length,
+                deadLetters: formatted,
+            });
+        } catch (err: any) {
+            return reply.code(500).send({ error: err.message });
+        }
+    });
+
+    // 6.1 Clear/Purge Dead Letter Jobs from Redis memory cache (Admin/Single only)
+    server.post('/api/workflows/failed-jobs/clear-redis', async (request, reply) => {
+        const orgId = request.user.organizationId;
+        const userId = request.user.id;
+
+        try {
+            const { role } = await workflowService.getUserAccess(userId);
+            if (role === 'MEMBER') {
+                return reply.code(403).send({ error: 'Only Organization Admins can clear Redis memory.' });
             }
-      
-      catch(err:any){
-                return reply.code(500).send({ error: err.message });
+
+            const failedJobs = await workflowQueue.getFailed(0, 500);
+            let removedCount = 0;
+
+            for (const job of failedJobs) {
+                if (job.data?.organizationId === orgId) {
+                    await job.remove();
+                    removedCount++;
+                }
             }
-        
+
+            return reply.send({
+                success: true,
+                message: `Purged ${removedCount} dead letter jobs from Redis RAM cache.`,
+                removedCount,
+            });
+        } catch (err: any) {
+            return reply.code(500).send({ error: err.message });
+        }
     });
 
 

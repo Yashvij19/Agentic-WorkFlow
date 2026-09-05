@@ -3,6 +3,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import AetherFlowLogo from '@/components/AetherFlowLogo';
 
 interface NodePaletteProps {
   isOpen: boolean;
@@ -50,16 +51,8 @@ export default function NodePalette({
 
       {/* 1. BRAND AREA (Fixed Header) */}
       <div className="flex items-center justify-between border-b border-white/[0.04] pb-4 shrink-0">
-        <div className="flex items-center gap-3">
-          {/* Premium SVG Logo Icon inside rounded square */}
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center shadow-md shadow-violet-600/20">
-            <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-            </svg>
-          </div>
-          <span className="font-bold text-sm tracking-tight text-white select-none">
-            FlowAgent
-          </span>
+        <div className="flex items-center gap-2">
+          <AetherFlowLogo size={24} showText textSize="text-sm" />
         </div>
 
         {/* Close Sidebar Trigger (completely closes to hamburger overlay) */}
@@ -210,6 +203,44 @@ export default function NodePalette({
               <div className="text-left leading-tight">
                 <h4 className="text-[11px] font-bold text-slate-200">Python Script</h4>
                 <p className="text-[9px] text-[#687493] font-light">Custom Python 3 runner</p>
+              </div>
+            </div>
+
+            {/* ForEach Array Iterator Node Draggability */}
+            <div
+              draggable
+              onDragStart={(e) => onDragStart(e, 'foreach')}
+              className="flex items-center gap-3 p-3 bg-black/40 border border-teal-500/15 hover:border-teal-500/40 rounded-xl cursor-grab active:cursor-grabbing transition duration-200 group"
+              title="Drag ForEach Array Iterator Node"
+            >
+              <div className="w-5 h-5 rounded bg-teal-500/20 text-teal-300 flex items-center justify-center font-mono font-bold text-[11px] shrink-0 border border-teal-500/30 group-hover:scale-110 transition-transform">
+                🔄
+              </div>
+              <div className="text-left leading-tight">
+                <h4 className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                  ForEach Loop
+                  <span className="text-[8px] bg-teal-950 text-teal-400 border border-teal-800/40 px-1 py-0.2 rounded">Batch</span>
+                </h4>
+                <p className="text-[9px] text-[#687493] font-light">Array batch iterator</p>
+              </div>
+            </div>
+
+            {/* Autonomous Guardrail Node Draggability */}
+            <div
+              draggable
+              onDragStart={(e) => onDragStart(e, 'guardrail')}
+              className="flex items-center gap-3 p-3 bg-black/40 border border-rose-500/15 hover:border-rose-500/40 rounded-xl cursor-grab active:cursor-grabbing transition duration-200 group"
+              title="Drag Autonomous Guardrail Node"
+            >
+              <div className="w-5 h-5 rounded bg-rose-500/20 text-rose-300 flex items-center justify-center font-mono font-bold text-[11px] shrink-0 border border-rose-500/30 group-hover:scale-110 transition-transform">
+                🛡️
+              </div>
+              <div className="text-left leading-tight">
+                <h4 className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                  Guardrail
+                  <span className="text-[8px] bg-rose-950 text-rose-400 border border-rose-800/40 px-1 py-0.2 rounded">Self-Heal</span>
+                </h4>
+                <p className="text-[9px] text-[#687493] font-light">Auto-correction & schema</p>
               </div>
             </div>
 

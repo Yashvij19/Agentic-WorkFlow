@@ -569,53 +569,85 @@ export class workflowService{
         }
 
         // 3. Determine which nodes to clear from database logs
-          const edges = workflow.dagJson as any[];
-        const nodesToClear = new Set<string>();
-        nodesToClear.add(targetNodeId);
+        const edges = workflow.dagJson as any[];
+        const nodes = workflow.nodesJson as any[];
 
-          if (resumeDownstream) {
-            // Find all downstream children
-            const downstream = new Set<string>();
-            const queue: string[] = [targetNodeId];
-            while (queue.length > 0) {
-                const current = queue.shift()!;
-                const children = edges.filter((e: any) => e.source === current).map((e: any) => e.target);
-                for (const child of children) {
-                    if (!downstream.has(child)) {
-                        downstream.add(child);
-                        queue.push(child);
-                    }
-                }
+        let effectiveTargetId = targetNodeId;
+        let effectiveResumeDownstream = resumeDownstream;
+
+        // 🔀 Smart Loop Auto-Routing: If targetNodeId is inside a ForEach loop sub-graph,
+        // elevate the replay target to the parent ForEach node so items are fed properly!
+        const forEachNodes = nodes.filter((n: any) => n.type === 'foreach');
+        for (const feNode of forEachNodes) {
+          const outgoingEdges = edges.filter((e: any) => e.source === feNode.id);
+          const loopEdge = outgoingEdges.find(
+            (e: any) => e.sourceHandle === 'loop' || (outgoingEdges.length === 1 && e.sourceHandle !== 'done')
+          );
+          if (loopEdge) {
+            const loopBranchNodes = new Set<string>();
+            const q = [loopEdge.target];
+            while (q.length > 0) {
+              const curr = q.shift()!;
+              if (!loopBranchNodes.has(curr)) {
+                loopBranchNodes.add(curr);
+                edges.filter((e: any) => e.source === curr).forEach((e: any) => q.push(e.target));
+              }
             }
-            downstream.forEach(id => nodesToClear.add(id));
+            if (loopBranchNodes.has(targetNodeId)) {
+              console.log(`🔀 [Replay] Target '${targetNodeId}' is inside loop of '${feNode.id}'. Elevating replay to parent '${feNode.id}'.`);
+              effectiveTargetId = feNode.id;
+              effectiveResumeDownstream = true; // Always resume downstream when elevating a loop
+              break;
+            }
+          }
         }
 
-          // 4. Delete the logs of nodes that will be re-run
-        await prisma.executionLog.deleteMany({
-            where: {
-                executionId,
-                nodeId: { in: Array.from(nodesToClear) }
+        const nodesToClear = new Set<string>();
+        nodesToClear.add(effectiveTargetId);
+
+        if (effectiveResumeDownstream) {
+          // Find all downstream children of the effective target
+          const downstream = new Set<string>();
+          const queue: string[] = [effectiveTargetId];
+          while (queue.length > 0) {
+            const current = queue.shift()!;
+            const children = edges.filter((e: any) => e.source === current).map((e: any) => e.target);
+            for (const child of children) {
+              if (!downstream.has(child)) {
+                downstream.add(child);
+                queue.push(child);
+              }
             }
+          }
+          downstream.forEach(id => nodesToClear.add(id));
+        }
+
+        // 4. Delete the logs of nodes that will be re-run
+        await prisma.executionLog.deleteMany({
+          where: {
+            executionId,
+            nodeId: { in: Array.from(nodesToClear) }
+          }
         });
 
         // 5. Update execution status back to PENDING and clear completedAt
         const updatedExecution = await prisma.workflowExecution.update({
-            where: { id: executionId },
-            data: {
-                status: 'PENDING',
-                completedAt: null
-            }
+          where: { id: executionId },
+          data: {
+            status: 'PENDING',
+            completedAt: null
+          }
         });
 
-         // 6. Enqueue back to BullMQ queue as a replay job
+        // 6. Enqueue back to BullMQ queue as a replay job
         await enqueWorkflowJob(
-            executionId, 
-            workflowId, 
-            orgId, 
-            targetNodeId, 
-            resumeDownstream, 
-            true, // isReplay: true
-            userId
+          executionId, 
+          workflowId, 
+          orgId, 
+          effectiveTargetId, 
+          effectiveResumeDownstream, 
+          true, // isReplay: true
+          userId
         );
         return updatedExecution;
 

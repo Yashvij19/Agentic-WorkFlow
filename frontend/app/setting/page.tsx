@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import AetherFlowLogo from '@/components/AetherFlowLogo';
 
 // Import our modular settings portal sub-components
 import CredentialsPortal from '@/components/settings/CredentialsPortal';
@@ -65,8 +66,8 @@ export default function SettingsPage() {
       <nav className="border-b border-white/[0.05] bg-[#030617]/90 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <Link href="/workflow" className="font-bold tracking-tight text-white text-base hover:text-slate-200 transition-colors duration-200">
-              FlowAgent
+            <Link href="/workflow" className="flex items-center gap-2 group">
+              <AetherFlowLogo size={26} showText textSize="text-base" />
             </Link>
             <span className="text-white/25 text-xs font-light">/</span>
             <span className="text-[#98A4C2] text-xs font-medium uppercase tracking-wider">

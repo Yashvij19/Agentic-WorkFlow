@@ -22,25 +22,21 @@ export class AgentNode implements INodeExecutor<AgentNodeConfig>{
 
         // 1. Variable Injection: Replace {{node_1.output}} with actual data from memory
 
-        const hydratedPrompt = injectVariables(rawPrompt, ctx.workflowContext);
+        let hydratedPrompt = injectVariables(rawPrompt, ctx.workflowContext);
+          if (ctx.correctionFeedback) {
+          ctx.emitTelemetry('RUNNING', `🤖 Agent applying self-correction feedback...`);
+            hydratedPrompt += `\n\n${ctx.correctionFeedback}`;
+        }
          ctx.emitTelemetry('RUNNING', `Agent prompt prepared: "${hydratedPrompt.slice(0, 80)}..."`);
 
-         // 2. Fetch credentials from context (passed by worker)
-    const encryptedKey = ctx.credentials?.['GEMINI_API_KEY'];
+        // 2. Fetch credentials from context (passed by worker)
+        const encryptedKey = ctx.credentials?.['GEMINI_API_KEY'];
 
-    if(!encryptedKey){
-         console.warn(`⚠️ [AgentNode] No GEMINI_API_KEY found. Using mock execution fallback.`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-       const durationMs = Date.now() - startTime;
-      return {
-        success: true,
-        output: `[Mock AI Response for: ${hydratedPrompt}]`,
-        metrics: {
-          durationMs,
-          tokensUsed: 0,
+        if (!encryptedKey) {
+          throw new Error(
+            `[AgentNode] Missing 'GEMINI_API_KEY' credential for organization '${ctx.orgId}'. Please configure your Gemini API key in Settings > Credentials to run AI Agent steps.`
+          );
         }
-      };
-    }
 
      // 3. Call AI Service
     ctx.emitTelemetry('RUNNING', `Calling Gemini API...`);

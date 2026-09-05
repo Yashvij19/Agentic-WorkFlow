@@ -46,7 +46,13 @@ export async function authRoutes(server:FastifyInstance){
             return reply.code(200).send({
                 message: 'Account registered successfully.',
                 token,
-                user: { id: user.id, email: user.email, organizationId: user.organizationId  , role:user.role}
+                user: { 
+                    id: user.id, 
+                    email: user.email, 
+                    organizationId: user.organizationId, 
+                    role: user.role,
+                    permissions: user.permissions 
+                }
             });
         }catch(error:any){
              return reply.code(400).send({ error: error.message });
@@ -73,7 +79,13 @@ export async function authRoutes(server:FastifyInstance){
             return reply.code(200).send({
                  message: 'Signed in successfully.',
                 token,
-                user: { id: user.id, email: user.email, organizationId: user.organizationId , role:user.role }
+                user: { 
+                    id: user.id, 
+                    email: user.email, 
+                    organizationId: user.organizationId, 
+                    role: user.role,
+                    permissions: user.permissions 
+                }
             });
             
         }catch(error:any){

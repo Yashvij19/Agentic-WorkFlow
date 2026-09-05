@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { User, Shield, KeyRound, Building, Mail, Clock, CheckCircle2, XCircle, Lock, ArrowLeft, ShieldCheck, Key, RefreshCw } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { useToast } from '@/context/ToastContext';
+import AetherFlowLogo from '@/components/AetherFlowLogo';
 
 import { PageTransitionLoader } from '@/components/PageTransitionLoader';
 
@@ -147,8 +148,8 @@ export default function ProfilePage() {
       <nav className="border-b border-white/[0.05] bg-[#030617]/90 backdrop-blur-md sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <Link href="/workflow" className="font-bold tracking-tight text-white text-base hover:text-slate-200 transition-colors duration-200">
-              FlowAgent
+            <Link href="/workflow" className="flex items-center gap-2 group">
+              <AetherFlowLogo size={26} showText textSize="text-base" />
             </Link>
             <span className="text-white/25 text-xs font-light">/</span>
             <span className="text-[#98A4C2] text-xs font-medium uppercase tracking-wider">

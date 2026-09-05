@@ -118,21 +118,25 @@ server.register(credentialRoutes);
 server.register(adminRoutes);
 server.register(ragRoutes);
 
-const start=async ()=>{
-    try{
-        // Bind to port 3000 and listen on all network interfaces (0.0.0.0)
+const start = async () => {
+    try {
+        const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
         await server.listen({
-            port:4000 , 
-            host:'0.0.0.0'
+            port: PORT, 
+            host: '0.0.0.0'
         });
 
-        server.log.info('server is ready to accept connections.');
-    }catch(err){
+        server.log.info(`Server is ready to accept connections on port ${PORT}.`);
+
+        // In unified/cloud deployments, spin up the BullMQ worker in the same process
+        if (process.env.RUN_WORKER !== 'false') {
+            await import('./workers/workflowWorker');
+            server.log.info('⚙️ [Worker] BullMQ Workflow Worker initialized in unified server process.');
+        }
+    } catch (err) {
         server.log.error(err);
-        process.exit(1);  // kill the process immediately if startup fails
+        process.exit(1); // kill the process immediately if startup fails
     }
-}
-
-
+};
 
 start();
