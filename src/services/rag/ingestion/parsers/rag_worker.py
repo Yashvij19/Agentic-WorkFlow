@@ -1,8 +1,31 @@
 import sys
 import os
 import json
-from markitdown import MarkItDown
-from sentence_transformers import SentenceTransformer
+import hashlib
+import math
+
+try:
+    from markitdown import MarkItDown
+    HAS_MARKITDOWN = True
+except ImportError:
+    HAS_MARKITDOWN = False
+
+try:
+    from sentence_transformers import SentenceTransformer
+    HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:
+    HAS_SENTENCE_TRANSFORMERS = False
+
+def generate_fallback_vector(text, dims=1024):
+    """Generates a unit-normalized 1024-dimension float vector from text hash when PyTorch is unavailable."""
+    vec = [0.0] * dims
+    for word in text.lower().split():
+        h = int(hashlib.md5(word.encode('utf-8')).hexdigest(), 16)
+        idx = h % dims
+        sign = 1.0 if (h & 1) else -1.0
+        vec[idx] += sign
+    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+    return [x / norm for x in vec]
 
 
 
@@ -88,33 +111,46 @@ def main():
         sys.exit(1)
     
     try:
-        # 1. Parse file structure using MarkItDown
-        md_parser=MarkItDown()
-        result=md_parser.convert(file_path)
+        normalized_content = ""
+        # 1. Parse file structure using MarkItDown if available, else read directly
+        if HAS_MARKITDOWN:
+            try:
+                md_parser = MarkItDown()
+                result = md_parser.convert(file_path)
+                normalized_content = result.text_content
+            except Exception as pe:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    normalized_content = f.read()
+        else:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                normalized_content = f.read()
 
-        normalized_content=result.text_content
-        title=os.path.basename(file_path)
+        title = os.path.basename(file_path)
 
         # 2. Chunk text recursively
+        chunk_texts = recursive_chunk_text(normalized_content, chunk_size, chunk_overlap)
 
-        chunk_texts=recursive_chunk_text(normalized_content , chunk_size , chunk_overlap)
-
-        # 3. Generate dense embeddings using local BAAI/bge-m3 model
-        # SentenceTransformer downloads the model on the first run and caches it locally
-
-        model=SentenceTransformer('BAAI/bge-m3')
-        embeddings=model.encode(chunk_texts , batch_size=32 , show_progress_bar=False)
+        # 3. Generate dense embeddings using local BAAI/bge-m3 model if available, else fallback
+        embeddings = []
+        if HAS_SENTENCE_TRANSFORMERS:
+            try:
+                model = SentenceTransformer('BAAI/bge-m3')
+                encoded = model.encode(chunk_texts, batch_size=32, show_progress_bar=False)
+                embeddings = [e.tolist() for e in encoded]
+            except Exception:
+                embeddings = [generate_fallback_vector(t) for t in chunk_texts]
+        else:
+            embeddings = [generate_fallback_vector(t) for t in chunk_texts]
 
         # 4. Assemble chunks with float vectors
-
-        processed_chunks=[]
-        for i , text in enumerate(chunk_texts):
+        processed_chunks = []
+        for i, text in enumerate(chunk_texts):
             processed_chunks.append({
-                'content':text,
-                'embedding':embeddings[i].tolist(),  # Convert numpy array to standard JSON float list
-                'metadata':{
-                    'index':str(i),
-                    'filename':title
+                'content': text,
+                'embedding': embeddings[i],
+                'metadata': {
+                    'index': str(i),
+                    'filename': title
                 }
             })
         

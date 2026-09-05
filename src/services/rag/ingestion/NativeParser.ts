@@ -1,6 +1,6 @@
-import {spawn} from 'child_process'
-import * as path from 'path'
+import * as path from 'path';
 import { DocumentParser, IngestionInput, NormalizedDocument, ParsedChunk } from '../types';
+import { GeminiEmbedder } from '../embeddings/GeminiEmbedder';
 
 
 
@@ -108,41 +108,7 @@ export class NativeParser implements DocumentParser {
             };
             return splitRecursive(text , separators)
         }
-        private getEmbeddings(texts: string[]): Promise<number[][]> {
-            return new Promise((resolve , reject)=>{
-                // Points to the parsers subfolder
-                const pythonScriptPath=path.join(__dirname , 'parsers', 'embed_worker.py');
-                const child=spawn('python', [pythonScriptPath]);
-                let stdoutData='';
-                let stderrData='';
-
-                child.stdout.on('data', (data)=>{
-                    stdoutData +=data.toString();
-                });
-
-                child.stderr.on('data' , (data)=>{
-                    stderrData += data.toString();
-                });
-
-                child.on('close', (code)=>{
-                    if(code!==0){
-                        return reject(new Error(`Embedding worker crashed with code ${code}. Error: ${stderrData}`));
-                    }
-                    try{
-                        const parsed=JSON.parse(stdoutData.trim());
-                        if(parsed.error){
-                            return reject(new Error(parsed.error));
-                        }
-                        resolve(parsed)
-                    }catch(err){
-                        reject(new Error(`Failed to parse embeddings JSON. Raw stdout: ${stdoutData}`));
-                    }
-                });
-
-                // Write text strings JSON array to stdin
-                child.stdin.write(JSON.stringify(texts));
-                child.stdin.end();
-
-            })
+        private async getEmbeddings(texts: string[]): Promise<number[][]> {
+            return await GeminiEmbedder.getEmbeddings(texts);
         }
     }

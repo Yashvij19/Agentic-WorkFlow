@@ -8,6 +8,7 @@ import { IngestionInput, NormalizedDocument, RAGConfiguration } from '../types';
 import { NativeParser } from './NativeParser';
 import { HierarchicalChunker } from './chunking/HierarchicalChunker';
 import { OKFParser } from './parsers/OKFParser';
+import { GeminiEmbedder } from '../embeddings/GeminiEmbedder';
 
 export class IngestionManager {
   private nativeParser = new NativeParser();
@@ -60,7 +61,7 @@ export class IngestionManager {
         p.children.forEach((c) => allChildTexts.push(c.content));
       });
       childEmbeddings =
-        allChildTexts.length > 0 ? await this.generateEmbeddingsBatch(allChildTexts) : [];
+        allChildTexts.length > 0 ? await this.generateEmbeddingsBatch(allChildTexts, orgId) : [];
     }
 
     // 4. Perform Database Transaction purely for fast SQL writes
@@ -216,36 +217,10 @@ export class IngestionManager {
   }
 
   /**
-   * Generates vector embeddings for an array of strings in batches using embed_worker.py.
+   * Generates vector embeddings for an array of strings in batches using GeminiEmbedder.
    */
-  private async generateEmbeddingsBatch(texts: string[]): Promise<number[][]> {
-    const scriptPath = path.resolve(__dirname, 'parsers', 'embed_worker.py');
-    return new Promise((resolve, reject) => {
-      const child = spawn('python', [scriptPath]);
-      let stdoutData = '';
-      let stderrData = '';
-      child.stdout.on('data', (data) => {
-        stdoutData += data.toString();
-      });
-      child.stderr.on('data', (data) => {
-        stderrData += data.toString();
-      });
-      child.on('close', (code) => {
-        if (code !== 0) {
-          return reject(
-            new Error(`Batch embedding worker failed with code ${code}. Stderr: ${stderrData}`)
-          );
-        }
-        try {
-          const parsed = JSON.parse(stdoutData.trim());
-          resolve(parsed);
-        } catch (err: any) {
-          reject(new Error(`Failed to parse batch embeddings: ${err.message}. Raw: ${stdoutData}`));
-        }
-      });
-      child.stdin.write(JSON.stringify(texts));
-      child.stdin.end();
-    });
+  private async generateEmbeddingsBatch(texts: string[], orgId?: string): Promise<number[][]> {
+    return await GeminiEmbedder.getEmbeddings(texts, orgId);
   }
 
   /**
@@ -256,6 +231,9 @@ export class IngestionManager {
     if (config.ingestion.parser === 'native') return false;
 
     const ext = path.extname(input.name).toLowerCase();
+    const textExtensions = ['.txt', '.md', '.markdown', '.json', '.csv', '.yaml', '.yml', '.js', '.ts', '.html'];
+    if (textExtensions.includes(ext)) return false;
+
     const binaryExtensions = ['.pdf', '.docx', '.xlsx', '.xls', '.pptx', '.ppt', '.zip'];
     return binaryExtensions.includes(ext) || !this.nativeParser.canParse(input.mimeType);
   }
