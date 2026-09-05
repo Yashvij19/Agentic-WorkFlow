@@ -54,6 +54,12 @@ model User {
 
   role   UserRole @default(SINGLE)
   permissions   Json? // Stores JSON-based granular permissions for MEMBERS
+  
+  // Two-Factor Authentication (Microsoft Authenticator / TOTP RFC 6238)
+  twoFactorSecret    String?     // Encrypted at rest with AES-256-GCM
+  isTwoFactorEnabled Boolean     @default(false)
+  backupCodes        String[]    @default([]) // Hashed with SHA-256 for emergency one-time recovery
+
   createdAt      DateTime     @default(now())
   
   // Multi-tenant isolation link

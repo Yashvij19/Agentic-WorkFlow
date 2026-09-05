@@ -12,6 +12,7 @@ import AetherFlowLogo from '@/components/AetherFlowLogo';
 import { PageTransitionLoader } from '@/components/PageTransitionLoader';
 import PasswordRequirements from '@/components/PasswordRequirements';
 import { getPasswordValidationState } from '@/utils/validation';
+import TwoFactorSetupModal from '@/components/TwoFactorSetupModal';
 
 interface UserProfile {
   id: string;
@@ -20,6 +21,8 @@ interface UserProfile {
   organizationId: string;
   organizationName: string;
   permissions?: any;
+  isTwoFactorEnabled?: boolean;
+  remainingBackupCodesCount?: number;
   createdAt?: string;
 }
 
@@ -34,6 +37,19 @@ export default function ProfilePage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+
+  // 2FA Management State
+  const [is2FASetupOpen, setIs2FASetupOpen] = useState(false);
+  const [isDisableModalOpen, setIsDisableModalOpen] = useState(false);
+  const [disablePassword, setDisablePassword] = useState('');
+  const [disableCode, setDisableCode] = useState('');
+  const [isDisabling, setIsDisabling] = useState(false);
+
+  // Backup Codes Regeneration State
+  const [isRegenerateModalOpen, setIsRegenerateModalOpen] = useState(false);
+  const [regeneratePassword, setRegeneratePassword] = useState('');
+  const [freshBackupCodes, setFreshBackupCodes] = useState<string[]>([]);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   const fetchProfile = async () => {
     const token = localStorage.getItem('token');
@@ -114,6 +130,74 @@ export default function ProfilePage() {
       toast.error(`Update failed: ${err.message}`);
     } finally {
       setIsResetting(false);
+    }
+  };
+
+  const handleDisable2FA = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!disablePassword || !disableCode) {
+      toast.error('Current password and verification code are required.');
+      return;
+    }
+    setIsDisabling(true);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/auth/2fa/disable`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          password: disablePassword,
+          code: disableCode.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to disable 2FA.');
+
+      toast.success(data.message || 'Two-Factor Authentication disabled.');
+      setIsDisableModalOpen(false);
+      setDisablePassword('');
+      setDisableCode('');
+      fetchProfile();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsDisabling(false);
+    }
+  };
+
+  const handleRegenerateBackupCodes = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regeneratePassword) {
+      toast.error('Current password is required.');
+      return;
+    }
+    setIsRegenerating(true);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/auth/2fa/regenerate-backup-codes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ password: regeneratePassword }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to regenerate backup codes.');
+
+      setFreshBackupCodes(data.backupCodes || []);
+      setRegeneratePassword('');
+      toast.success('Fresh emergency backup codes generated!');
+      fetchProfile();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsRegenerating(false);
     }
   };
 
@@ -315,6 +399,248 @@ export default function ProfilePage() {
           </div>
 
         </div>
+
+        {/* Two-Factor Authentication (Microsoft Authenticator) Card */}
+        <div className="bg-[#080D1D]/90 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-5">
+          <div className="border-b border-white/[0.05] pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck className={`w-5 h-5 ${profile?.isTwoFactorEnabled ? 'text-emerald-400' : 'text-violet-400'}`} />
+              <div>
+                <h2 className="text-sm font-bold text-white uppercase tracking-wider">Two-Factor Authentication (2FA)</h2>
+                <p className="text-[11px] text-[#98A4C2]">
+                  Hardware-less MFA using Microsoft Authenticator or Google Authenticator (TOTP RFC 6238).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {profile?.isTwoFactorEnabled ? (
+                <span className="px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-emerald-950/50 text-emerald-300 border border-emerald-800/40 uppercase flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Protected with Authenticator
+                </span>
+              ) : (
+                <span className="px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-950/40 text-amber-300 border border-amber-800/30 uppercase flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  2FA Disabled (Vulnerable)
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-4 bg-black/40 rounded-xl border border-white/[0.04]">
+            <div className="space-y-1 text-xs">
+              <p className="text-slate-200 font-medium">
+                {profile?.isTwoFactorEnabled
+                  ? `Your account is guarded by Microsoft Authenticator. You have ${profile?.remainingBackupCodesCount ?? 0} emergency backup recovery codes remaining.`
+                  : 'Enable 2FA to protect your account against unauthorized logins and enable secure self-service password resets.'}
+              </p>
+              <p className="text-[11px] text-slate-400">
+                {profile?.isTwoFactorEnabled
+                  ? 'If you ever lose access to your phone, use your saved emergency backup recovery codes to reset your password.'
+                  : '⚠️ Without 2FA enabled, self-service password recovery cannot be verified if forgotten.'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0 w-full md:w-auto">
+              {profile?.isTwoFactorEnabled ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsRegenerateModalOpen(true)}
+                    className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-violet-400" />
+                    <span>Regenerate Backup Codes</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsDisableModalOpen(true)}
+                    className="px-3 py-2 bg-red-950/30 hover:bg-red-900/40 border border-red-800/30 text-red-300 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <XCircle className="w-3.5 h-3.5 text-red-400" />
+                    <span>Disable 2FA</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIs2FASetupOpen(true)}
+                  className="px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg transition flex items-center gap-2 cursor-pointer"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Enable Microsoft Authenticator</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Setup Modal */}
+        <TwoFactorSetupModal
+          isOpen={is2FASetupOpen}
+          onClose={() => setIs2FASetupOpen(false)}
+          onSuccess={() => fetchProfile()}
+        />
+
+        {/* Disable 2FA Modal */}
+        {isDisableModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+            <div className="bg-[#080D1D] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <XCircle className="w-5 h-5 text-red-400" />
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Disable Two-Factor Authentication</h3>
+                </div>
+                <button onClick={() => setIsDisableModalOpen(false)} className="text-slate-400 hover:text-white">
+                  <XCircle className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-300">
+                Disabling 2FA reduces your account security and disables self-service password resets. To confirm, enter your current password and 6-digit code.
+              </p>
+
+              <form onSubmit={handleDisable2FA} className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Current Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={disablePassword}
+                    onChange={(e) => setDisablePassword(e.target.value)}
+                    placeholder="Enter current password"
+                    className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-red-500/50"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    6-Digit Authenticator Code (or Backup Code)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={disableCode}
+                    onChange={(e) => setDisableCode(e.target.value)}
+                    placeholder="000 000 or BK-XXXX-XXXX"
+                    className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-red-500/50 font-mono"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsDisableModalOpen(false)}
+                    className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs rounded-xl transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isDisabling}
+                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {isDisabling ? 'Disabling...' : 'Confirm Disable'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Regenerate Backup Codes Modal */}
+        {isRegenerateModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+            <div className="bg-[#080D1D] border border-white/10 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="w-5 h-5 text-violet-400" />
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Regenerate Emergency Recovery Codes</h3>
+                </div>
+                <button onClick={() => { setIsRegenerateModalOpen(false); setFreshBackupCodes([]); }} className="text-slate-400 hover:text-white">
+                  <XCircle className="w-4 h-4" />
+                </button>
+              </div>
+
+              {freshBackupCodes.length === 0 ? (
+                <form onSubmit={handleRegenerateBackupCodes} className="space-y-4">
+                  <p className="text-xs text-slate-300">
+                    Regenerating codes will permanently deactivate any previously issued backup codes. Please enter your password to proceed.
+                  </p>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Account Password
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={regeneratePassword}
+                      onChange={(e) => setRegeneratePassword(e.target.value)}
+                      placeholder="Enter account password"
+                      className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-violet-500/50"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsRegenerateModalOpen(false)}
+                      className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs rounded-xl transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isRegenerating}
+                      className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl transition disabled:opacity-50"
+                    >
+                      {isRegenerating ? 'Generating...' : 'Generate 5 New Codes'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs rounded-xl">
+                    ✅ 5 Fresh backup codes generated! Save them in a safe place.
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-black/40 border border-white/5 p-3 rounded-xl">
+                    {freshBackupCodes.map((code, i) => (
+                      <div key={i} className="p-2 bg-black/60 border border-white/5 rounded-lg text-center font-mono text-xs font-semibold text-slate-200 select-all">
+                        {code}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(freshBackupCodes.join('\n'));
+                        toast.success('Copied all backup codes!');
+                      }}
+                      className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold rounded-xl border border-white/10 transition"
+                    >
+                      Copy All Codes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRegenerateModalOpen(false);
+                        setFreshBackupCodes([]);
+                      }}
+                      className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl transition"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Full Width Permissions Matrix */}
         <div className="bg-[#080D1D]/90 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-6">

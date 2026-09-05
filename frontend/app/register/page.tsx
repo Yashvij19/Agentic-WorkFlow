@@ -8,6 +8,7 @@ import AutoCanvasVisual from '@/components/AutoCanvasVisual';
 import PasswordRequirements from '@/components/PasswordRequirements';
 import { getPasswordValidationState } from '@/utils/validation';
 import { API_URL } from '@/utils/config';
+import TwoFactorSetupModal from '@/components/TwoFactorSetupModal';
 
 interface ToastState {
   show: boolean;
@@ -32,6 +33,7 @@ export default function RegisterPage() {
 
   // Status States
   const [loading, setLoading] = useState(false);
+  const [is2FAOnboardingOpen, setIs2FAOnboardingOpen] = useState(false);
   const [pendingRequestInfo, setPendingRequestInfo] = useState<{
     requestId: string;
     expiresAt: string;
@@ -105,14 +107,14 @@ export default function RegisterPage() {
         return;
       }
 
-      // Approved registrations (SINGLE & ADMIN) - store credentials & login
-      showToast("Registration successful! Logging in...", "success");
+      // Approved registrations (SINGLE & ADMIN) - store credentials & open 2FA onboarding
+      showToast("Account created! Let's secure your account with 2FA...", "success");
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
 
       setTimeout(() => {
-        router.push('/workflow');
-      }, 1500);
+        setIs2FAOnboardingOpen(true);
+      }, 500);
 
     } catch (err: any) {
       showToast(err.message, "error");
@@ -564,6 +566,18 @@ export default function RegisterPage() {
         </div>
 
       </div>
+
+      {/* 2FA Onboarding Modal for New Users */}
+      <TwoFactorSetupModal
+        isOpen={is2FAOnboardingOpen}
+        isOnboarding={true}
+        onClose={() => router.push('/workflow')}
+        onSuccess={() => {
+          showToast("Two-Factor Authentication activated! Entering studio...", "success");
+          setTimeout(() => router.push('/workflow'), 800);
+        }}
+        onSkip={() => router.push('/workflow')}
+      />
     </div>
   );
 }

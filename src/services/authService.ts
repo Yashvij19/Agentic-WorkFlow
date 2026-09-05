@@ -1,6 +1,15 @@
 import crypto, { randomBytes } from 'crypto';
 import { prisma } from '../utils/db';
 import { validatePassword } from '../utils/validation';
+import { encryptCredential, decryptCredential } from '../utils/crypto';
+import { 
+    generateTotpSecret, 
+    generateTotpUri, 
+    verifyTotpCode, 
+    generateBackupCodes, 
+    hashBackupCode, 
+    verifyAndBurnBackupCode 
+} from '../utils/totp';
 
 const PBKDF2_ITERATIONS = 210000;
 const PBKDF2_KEYLEN = 64; // 64 bytes = 512 bits
@@ -298,6 +307,8 @@ export class AuthService{
                 ...permissions,
                 scopedWorkflows: enrichedAllowedWorkflows,
             },
+            isTwoFactorEnabled: !!user.isTwoFactorEnabled,
+            remainingBackupCodesCount: Array.isArray(user.backupCodes) ? user.backupCodes.length : 0,
             createdAt: user.createdAt
         };
     }
@@ -330,10 +341,235 @@ export class AuthService{
         return { message: "Password updated successfully." };
     }
 
-    static async forgotPassword(email: string, newPasswordPlain: string) {
-        // Prevent anonymous password takeover
-        throw new Error(
-            "Self-service anonymous password reset without verification is disabled for security. Please contact your organization administrator or use reset password from your account profile."
-        );
+    /**
+     * Checks if an account exists and whether Two-Factor Authentication is active.
+     */
+    static async check2FAStatus(email: string) {
+        const cleanEmail = (email || '').trim().toLowerCase();
+        if (!cleanEmail) {
+            return { isTwoFactorEnabled: false };
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: cleanEmail },
+            select: { id: true, isTwoFactorEnabled: true }
+        });
+
+        if (!user) {
+            return { isTwoFactorEnabled: false };
+        }
+
+        return { isTwoFactorEnabled: !!user.isTwoFactorEnabled };
+    }
+
+    /**
+     * Generates a new TOTP secret seed and 5 emergency backup codes for pairing.
+     * Encrypts the seed at rest before sending the URI and plaintext codes to the user.
+     */
+    static async setup2FA(userId: string) {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, email: true }
+        });
+
+        if (!user) {
+            throw new Error("User not found.");
+        }
+
+        const secret = generateTotpSecret();
+        const uri = generateTotpUri(user.email, secret);
+        const { plainCodes, hashedCodes } = generateBackupCodes(5);
+
+        // Encrypt secret with AES-256-GCM and temporarily store seed with staged backup codes
+        const encryptedSecret = encryptCredential(secret);
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: {
+                twoFactorSecret: encryptedSecret,
+                backupCodes: hashedCodes,
+                // Notice: isTwoFactorEnabled stays false until the user successfully verifies code
+            }
+        });
+
+        return {
+            secret,
+            uri,
+            backupCodes: plainCodes
+        };
+    }
+
+    /**
+     * Verifies the 6-digit rolling code from Microsoft Authenticator to confirm successful pairing.
+     * Once confirmed, activates 2FA on the user's account.
+     */
+    static async enable2FA(userId: string, code: string) {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, twoFactorSecret: true, isTwoFactorEnabled: true }
+        });
+
+        if (!user || !user.twoFactorSecret) {
+            throw new Error("2FA setup has not been initiated. Please click 'Enable 2FA' first.");
+        }
+
+        const secret = decryptCredential(user.twoFactorSecret);
+        const isValid = verifyTotpCode(secret, code);
+
+        if (!isValid) {
+            throw new Error("Invalid 6-digit code. Please check Microsoft Authenticator and try again.");
+        }
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: { isTwoFactorEnabled: true }
+        });
+
+        return {
+            success: true,
+            message: "Two-Factor Authentication is now active and protecting your account!"
+        };
+    }
+
+    /**
+     * Disables 2FA on the account. Requires confirming the current password and a valid 2FA code.
+     */
+    static async disable2FA(userId: string, passwordPlain: string, code: string) {
+        const user = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+
+        if (!user) {
+            throw new Error("User not found.");
+        }
+
+        if (!user.isTwoFactorEnabled || !user.twoFactorSecret) {
+            throw new Error("2FA is not currently enabled on this account.");
+        }
+
+        // 1. Verify user's current password
+        const isPasswordValid = verifyPassword(passwordPlain, user.passwordHash);
+        if (!isPasswordValid) {
+            throw new Error("Incorrect current password.");
+        }
+
+        // 2. Verify 2FA code or backup code
+        const secret = decryptCredential(user.twoFactorSecret);
+        const isTotpValid = verifyTotpCode(secret, code);
+        const burnResult = !isTotpValid ? verifyAndBurnBackupCode(code, user.backupCodes) : { isValid: false };
+
+        if (!isTotpValid && !burnResult.isValid) {
+            throw new Error("Invalid 6-digit authenticator code or backup recovery code.");
+        }
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: {
+                isTwoFactorEnabled: false,
+                twoFactorSecret: null,
+                backupCodes: []
+            }
+        });
+
+        return {
+            success: true,
+            message: "Two-Factor Authentication has been successfully disabled."
+        };
+    }
+
+    /**
+     * Regenerates 5 fresh emergency backup recovery codes for a user with active 2FA.
+     */
+    static async regenerateBackupCodes(userId: string, passwordPlain: string) {
+        const user = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+
+        if (!user) {
+            throw new Error("User not found.");
+        }
+
+        if (!user.isTwoFactorEnabled) {
+            throw new Error("2FA must be active to regenerate emergency recovery codes.");
+        }
+
+        const isPasswordValid = verifyPassword(passwordPlain, user.passwordHash);
+        if (!isPasswordValid) {
+            throw new Error("Incorrect current password.");
+        }
+
+        const { plainCodes, hashedCodes } = generateBackupCodes(5);
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: { backupCodes: hashedCodes }
+        });
+
+        return {
+            backupCodes: plainCodes,
+            message: "Fresh emergency backup codes generated. Store them in a safe place!"
+        };
+    }
+
+    /**
+     * Secure self-service password reset protected by Microsoft Authenticator (TOTP)
+     * or a one-time emergency Backup Recovery Code.
+     */
+    static async forgotPasswordWith2FA(email: string, codeOrBackup: string, newPasswordPlain: string) {
+        const cleanEmail = (email || '').trim().toLowerCase();
+        const cleanCode = (codeOrBackup || '').trim();
+
+        if (!cleanEmail || !cleanCode || !newPasswordPlain) {
+            throw new Error("Email, verification code, and new password are required.");
+        }
+
+        const passValidation = validatePassword(newPasswordPlain);
+        if (!passValidation.isValid) {
+            throw new Error(passValidation.error);
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: cleanEmail }
+        });
+
+        // If user does not exist or has not enabled 2FA, reject with professional instructions
+        if (!user || !user.isTwoFactorEnabled || !user.twoFactorSecret) {
+            throw new Error(
+                "Two-Factor Authentication (2FA) is not enabled on this account. " +
+                "Because no secondary verification method is configured, self-service password reset is disabled to protect against unauthorized account takeover. " +
+                "Please contact your organization administrator or workspace owner to restore access."
+            );
+        }
+
+        const secret = decryptCredential(user.twoFactorSecret);
+
+        // 1. Try 6-digit rolling TOTP code
+        const isTotpValid = verifyTotpCode(secret, cleanCode);
+
+        // 2. Try emergency backup recovery code
+        const burnResult = !isTotpValid ? verifyAndBurnBackupCode(cleanCode, user.backupCodes) : { isValid: false, remainingHashedCodes: user.backupCodes };
+
+        if (!isTotpValid && !burnResult.isValid) {
+            throw new Error("Invalid 6-digit authenticator code or emergency recovery code. Please check your Microsoft Authenticator app and try again.");
+        }
+
+        const newHash = hashPassword(newPasswordPlain);
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                passwordHash: newHash,
+                // If a backup code was used, burn (delete) that code so it can never be reused
+                backupCodes: burnResult.isValid ? burnResult.remainingHashedCodes : user.backupCodes
+            }
+        });
+
+        return {
+            success: true,
+            usedBackupCode: burnResult.isValid,
+            message: burnResult.isValid
+                ? "Password successfully reset using an emergency recovery code! That code has been retired."
+                : "Password successfully reset with Microsoft Authenticator! You can now sign in."
+        };
     }
 }
