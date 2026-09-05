@@ -17,17 +17,21 @@ if (!jwtSecret) {
 
 
 
-const server:FastifyInstance=Fastify({
-    logger:{
-        transport:{
-            target:'pino-pretty',
-            options:{
-                translateTime:'HH:MM:ss Z',
-                ignore:'pid,hostname'
+const isProduction = process.env.NODE_ENV === 'production';
+
+const server: FastifyInstance = Fastify({
+    logger: isProduction
+        ? true
+        : {
+            transport: {
+                target: 'pino-pretty',
+                options: {
+                    translateTime: 'HH:MM:ss Z',
+                    ignore: 'pid,hostname'
+                },
             },
         },
-    },
-})
+});
 
 server.addHook('onRequest', async(request , reply)=>{
     reply.header('Access-Control-Allow-Origin', '*');
