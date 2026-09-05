@@ -19,22 +19,24 @@ export class GeminiEmbedder {
   }
 
   /**
-   * Retrieves decrypted Gemini API key from DB or process.env
+   * Retrieves decrypted Gemini API key strictly from the organization's saved credentials in DB.
+   * Multi-tenant isolation: Never falls back to server-level process.env.
    */
   static async getApiKey(orgId?: string): Promise<string | null> {
-    if (orgId) {
-      try {
-        const cred = await prisma.credential.findFirst({
-          where: { organizationId: orgId, name: 'GEMINI_API_KEY' },
-        });
-        if (cred?.encryptedData) {
-          return decryptCredential(cred.encryptedData);
-        }
-      } catch (e) {
-        // Ignore DB lookup error and check process.env
-      }
+    if (!orgId) {
+      return null;
     }
-    return process.env.GEMINI_API_KEY || null;
+    try {
+      const cred = await prisma.credential.findFirst({
+        where: { organizationId: orgId, name: 'GEMINI_API_KEY' },
+      });
+      if (cred?.encryptedData) {
+        return decryptCredential(cred.encryptedData);
+      }
+    } catch (e: any) {
+      console.warn(`⚠️ [GeminiEmbedder] Could not retrieve GEMINI_API_KEY for organization '${orgId}': ${e.message}`);
+    }
+    return null;
   }
 
   /**

@@ -618,10 +618,14 @@ const processWorkflow = async (job: Job) => {
 
 }
 // Initialize the Worker
-const worker = new Worker(WORKFLOW_QUEUE_NAME, processWorkflow, {
+const workerConcurrency = process.env.WORKER_CONCURRENCY
+  ? parseInt(process.env.WORKER_CONCURRENCY, 10)
+  : (process.env.NODE_ENV === 'production' ? 3 : 5);
+
+export const worker = new Worker(WORKFLOW_QUEUE_NAME, processWorkflow, {
   connection: redisConnection,
-  concurrency: 10,
-})
+  concurrency: workerConcurrency,
+});
 
 worker.on('completed', (job) => {
   console.log(`🟢 [Queue] Job ${job.id} completed successfully.`);
