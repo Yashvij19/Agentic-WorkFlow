@@ -29,6 +29,7 @@ export interface RAGQueryResult {
   latencyMs: number;
   traceId?: string;
   metrics?:RagTraceMetrics;
+  generationEnabled?: boolean;
 }
 
 export class RAGEngine {
@@ -56,6 +57,20 @@ export class RAGEngine {
   }): Promise<RAGQueryResult> {
     const startTime = Date.now();
     const { orgId, query, config, executionId, nodeId, metadataFilters } = params;
+
+    // 0. Fail-Fast Validation: When LLM answer generation is enabled, verify credentials upfront (2ms)
+    //    before wasting CPU cycles and memory on heavy embedding and reranking models.
+    if (config.generation?.enabled) {
+      const cred = await prisma.credential.findFirst({
+        where: { organizationId: orgId, name: 'GEMINI_API_KEY' },
+        select: { id: true, encryptedData: true },
+      });
+      if (!cred || !cred.encryptedData) {
+        throw new Error(
+          'GEMINI_API_KEY credential not found for organization. Please configure API keys under Settings.'
+        );
+      }
+    }
 
     // 1. Query Analysis
     const t0 = Date.now();
@@ -155,25 +170,28 @@ export class RAGEngine {
     // 9. LLM Answer Generation (if enabled)
     const t7 = Date.now();
     let answer = '';
-    if (config.generation.enabled) {
+    const isGenerationEnabled = Boolean(config.generation?.enabled);
+    if (isGenerationEnabled) {
       answer = await this.generateAnswer(orgId, query, finalContextText, config);
     } else {
-      // If generation is disabled, output context directly
-      answer = finalContextText;
+      // If generation is disabled, leave answer empty (retrieval-only mode)
+      answer = '';
     }
-    const generationMs = Date.now() - t7;
+    const generationMs = isGenerationEnabled ? Date.now() - t7 : 0;
 
     const totalMs = Date.now() - startTime;
 
     // Compute Token & Cost Metrics
-    const estimatedPromptTokens = Math.ceil(
-      ((config.generation.systemPrompt || '').length + finalContextText.length + query.length) / 4
-    );
-    const estimatedCompletionTokens = Math.ceil((answer || '').length / 4);
+    const estimatedPromptTokens = isGenerationEnabled
+      ? Math.ceil(((config.generation?.systemPrompt || '').length + finalContextText.length + query.length) / 4)
+      : 0;
+    const estimatedCompletionTokens = isGenerationEnabled
+      ? Math.ceil((answer || '').length / 4)
+      : 0;
     // Cost estimation based on Gemini 2.5 Flash ($0.075 / 1M prompt, $0.30 / 1M output)
-    const estimatedCostUsd = Number(
-      ((estimatedPromptTokens * 0.075 + estimatedCompletionTokens * 0.3) / 1000000).toFixed(6)
-    );
+    const estimatedCostUsd = isGenerationEnabled
+      ? Number(((estimatedPromptTokens * 0.075 + estimatedCompletionTokens * 0.3) / 1000000).toFixed(6))
+      : 0;
 
     const timing = {
       analysisMs,
@@ -217,7 +235,7 @@ export class RAGEngine {
             fusedJson: fusedCandidates as any,
             rerankedJson: rerankedCandidates as any,
             contextString: finalContextText,
-            answerString: answer,
+            answerString: answer || (isGenerationEnabled ? '' : '[Generative synthesis disabled - retrieval only]'),
             metricsJson: metrics as any,
           },
         });
@@ -242,6 +260,7 @@ export class RAGEngine {
       latencyMs: totalMs,
       traceId,
       metrics,
+      generationEnabled: isGenerationEnabled,
     };
   }
 

@@ -11,6 +11,7 @@ import AetherFlowLogo from '@/components/AetherFlowLogo';
 
 import { PageTransitionLoader } from '@/components/PageTransitionLoader';
 import PasswordRequirements from '@/components/PasswordRequirements';
+import PasswordInput from '@/components/PasswordInput';
 import { getPasswordValidationState } from '@/utils/validation';
 import TwoFactorSetupModal from '@/components/TwoFactorSetupModal';
 
@@ -343,8 +344,7 @@ export default function ProfilePage() {
                 <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
                   Current Password
                 </label>
-                <input
-                  type="password"
+                <PasswordInput
                   required
                   value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value)}
@@ -358,8 +358,7 @@ export default function ProfilePage() {
                   <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
                     New Password
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     required
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
@@ -372,8 +371,7 @@ export default function ProfilePage() {
                   <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
                     Confirm Password
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     required
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
@@ -506,8 +504,7 @@ export default function ProfilePage() {
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                     Current Password
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     required
                     value={disablePassword}
                     onChange={(e) => setDisablePassword(e.target.value)}
@@ -574,8 +571,7 @@ export default function ProfilePage() {
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                       Account Password
                     </label>
-                    <input
-                      type="password"
+                    <PasswordInput
                       required
                       value={regeneratePassword}
                       onChange={(e) => setRegeneratePassword(e.target.value)}
@@ -666,7 +662,7 @@ export default function ProfilePage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {permissionList.map(({ key, label, desc }) => {
-              const isGranted = profile?.role === 'ADMIN' || profile?.role === 'SINGLE' || perms[key] === true;
+              const isGranted = perms[key] === true;
               return (
                 <div
                   key={key}

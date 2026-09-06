@@ -1,9 +1,10 @@
 // frontend/app/document/page.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow, Search, CheckCircle2, AlertCircle } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { Loader } from '../../components/Loader';
 import Swal from 'sweetalert2';
@@ -41,6 +42,7 @@ interface TestQueryResult {
   rerankedCount?: number;
   hasGraphContext?: boolean;
   latencyMs: number;
+  generationEnabled?: boolean;
   context: {
     contextText: string;
     citations: Array<{
@@ -56,12 +58,17 @@ interface TestQueryResult {
 }
 
 export default function DocumentKnowledgePage() {
+  const router = useRouter();
   const { toast } = useToast();
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [activeKbScopeTab, setActiveKbScopeTab] = useState<'ALL' | 'ORGANIZATION' | 'PERSONAL'>('ALL');
   const [selectedKbFilter, setSelectedKbFilter] = useState<string>('ALL');
   const [isLoading, setIsLoading] = useState(true);
+
+  // Search filter states
+  const [kbSearchQuery, setKbSearchQuery] = useState('');
+  const [docSearchQuery, setDocSearchQuery] = useState('');
   
   // Create Knowledge Base Modal State
   const [isCreateKbModalOpen, setIsCreateKbModalOpen] = useState(false);
@@ -81,6 +88,7 @@ export default function DocumentKnowledgePage() {
   const [testTargetKbId, setTestTargetKbId] = useState<string>('');
   const [rerankerChoice, setRerankerChoice] = useState<'none' | 'local_cross_encoder' | 'simple_lexical'>('local_cross_encoder');
   const [contextStrategyChoice, setContextStrategyChoice] = useState<'top_chunks' | 'parent_child' | 'neighbors'>('parent_child');
+  const [isGenerationEnabled, setIsGenerationEnabled] = useState<boolean>(true);
   const [isTesting, setIsTesting] = useState(false);
   const [queryResult, setQueryResult] = useState<TestQueryResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
@@ -97,23 +105,37 @@ export default function DocumentKnowledgePage() {
   const fetchKnowledgeBases = async () => {
     try {
       const token = getAuthToken();
+      if (!token) return;
+
       const res = await fetch(`${API_URL}/api/rag/knowledge-bases`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setKnowledgeBases(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        setKnowledgeBases(list);
+        setTargetUploadKbId((prev) => {
+          if (!prev && list.length > 0) return list[0].id;
+          return prev;
+        });
+      } else if (res.status === 401) {
+        router.push('/login');
       }
     } catch (err: any) {
-      console.error(err);
+      console.warn('Could not fetch knowledge bases:', err?.message || err);
     }
   };
 
   // 2. Fetch Documents from Backend
   const fetchDocuments = async () => {
+    const token = getAuthToken();
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const token = getAuthToken();
       const url = selectedKbFilter && selectedKbFilter !== 'ALL'
         ? `${API_URL}/api/rag/documents?knowledgeSourceId=${selectedKbFilter}`
         : `${API_URL}/api/rag/documents`;
@@ -123,24 +145,36 @@ export default function DocumentKnowledgePage() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to fetch documents');
+        if (res.status === 401) {
+          router.push('/login');
+          return;
+        }
+        throw new Error(`Failed to fetch documents (${res.status})`);
       }
 
       const data = await res.json();
       setDocuments(data.documents || []);
     } catch (err: any) {
-      console.error(err);
+      console.warn('Could not fetch documents:', err?.message || err);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
+    const token = getAuthToken();
+    if (!token) {
+      router.push('/login');
+      return;
+    }
     fetchKnowledgeBases();
   }, []);
 
   useEffect(() => {
-    fetchDocuments();
+    const token = getAuthToken();
+    if (token) {
+      fetchDocuments();
+    }
   }, [selectedKbFilter]);
 
   // 3. Handle Create Knowledge Base
@@ -222,6 +256,10 @@ export default function DocumentKnowledgePage() {
 
   const handleUpload = async () => {
     if (!selectedFile) return;
+    if (!targetUploadKbId) {
+      toast.error('Please select or create a destination Knowledge Base first.');
+      return;
+    }
     setIsUploading(true);
 
     try {
@@ -241,7 +279,7 @@ export default function DocumentKnowledgePage() {
               name: selectedFile.name,
               mimeType: selectedFile.type || 'text/plain',
               source: selectedFile.name,
-              knowledgeSourceId: targetUploadKbId || undefined,
+              knowledgeSourceId: targetUploadKbId,
               base64Buffer,
               config: {
                 ingestion: {
@@ -351,6 +389,9 @@ export default function DocumentKnowledgePage() {
               maxTokens: 4000,
               citationMode: 'inline',
             },
+            generation: {
+              enabled: isGenerationEnabled,
+            },
           },
         }),
       });
@@ -368,10 +409,23 @@ export default function DocumentKnowledgePage() {
     }
   };
 
-  const filteredKnowledgeBases = knowledgeBases.filter((kb) => {
-    if (activeKbScopeTab === 'ALL') return true;
-    return kb.scope === activeKbScopeTab;
-  });
+  const filteredKnowledgeBases = useMemo(() => {
+    return knowledgeBases.filter((kb) => {
+      const matchesScope = activeKbScopeTab === 'ALL' || kb.scope === activeKbScopeTab;
+      const q = kbSearchQuery.toLowerCase().trim();
+      const matchesSearch = !q || kb.name.toLowerCase().includes(q) || (kb.description && kb.description.toLowerCase().includes(q));
+      return matchesScope && matchesSearch;
+    });
+  }, [knowledgeBases, activeKbScopeTab, kbSearchQuery]);
+
+  const filteredDocuments = useMemo(() => {
+    return documents.filter((doc) => {
+      const matchesKb = selectedKbFilter === 'ALL' || doc.knowledgeSourceId === selectedKbFilter;
+      const q = docSearchQuery.toLowerCase().trim();
+      const matchesSearch = !q || doc.name.toLowerCase().includes(q);
+      return matchesKb && matchesSearch;
+    });
+  }, [documents, selectedKbFilter, docSearchQuery]);
 
   return (
     <div className="min-h-screen bg-[#030617] text-white flex flex-col font-sans">
@@ -409,13 +463,6 @@ export default function DocumentKnowledgePage() {
             <span>+ New Knowledge Base</span>
           </button>
 
-          <Link
-            href="/workflow"
-            className="text-xs text-purple-400 hover:text-purple-300 font-semibold transition"
-          >
-            Go to Canvas &rarr;
-          </Link>
-
           <UserProfileDropdown />
         </div>
       </header>
@@ -425,80 +472,128 @@ export default function DocumentKnowledgePage() {
         
         {/* Knowledge Base Containers Section */}
         <section className="bg-[#080D1D]/90 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.04] pb-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/[0.04] pb-4">
             <div>
-              <h2 className="font-semibold text-sm text-white">Knowledge Bases</h2>
-              <p className="text-[11px] text-[#98A4C2]">Isolated document collections powering your RAG AI Agents</p>
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold text-sm text-white">Knowledge Bases</h2>
+                <span className="text-[10px] text-purple-300 font-mono bg-purple-950/40 border border-purple-800/30 px-2 py-0.5 rounded-full">
+                  {filteredKnowledgeBases.length} found
+                </span>
+                {selectedKbFilter !== 'ALL' && (
+                  <button
+                    onClick={() => setSelectedKbFilter('ALL')}
+                    className="text-[10px] text-violet-400 hover:text-violet-300 underline cursor-pointer ml-2"
+                  >
+                    Clear Filter (Show All)
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-[#98A4C2]">Click a Knowledge Base to filter its documents below and target uploads</p>
             </div>
 
-            {/* Scope Filter Tabs */}
-            <div className="flex items-center gap-1.5 p-1 bg-black/40 border border-white/5 rounded-xl text-xs">
-              {(['ALL', 'ORGANIZATION', 'PERSONAL'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveKbScopeTab(tab)}
-                  className={`px-3 py-1 rounded-lg font-medium transition cursor-pointer ${
-                    activeKbScopeTab === tab
-                      ? 'bg-violet-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {tab === 'ALL' ? 'All' : tab === 'ORGANIZATION' ? 'Organization' : 'Personal'}
-                </button>
-              ))}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              {/* Search Knowledge Bases by Name */}
+              <div className="relative w-full sm:w-56">
+                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search KB by name..."
+                  value={kbSearchQuery}
+                  onChange={(e) => setKbSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500/50"
+                />
+              </div>
+
+              {/* Scope Filter Tabs */}
+              <div className="flex items-center gap-1.5 p-1 bg-black/40 border border-white/5 rounded-xl text-xs shrink-0">
+                {(['ALL', 'ORGANIZATION', 'PERSONAL'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveKbScopeTab(tab)}
+                    className={`px-3 py-1 rounded-lg font-medium transition cursor-pointer ${
+                      activeKbScopeTab === tab
+                        ? 'bg-violet-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {tab === 'ALL' ? 'All' : tab === 'ORGANIZATION' ? 'Organization' : 'Personal'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Knowledge Base Cards Grid */}
+          {/* Knowledge Base Cards Grid with Scrollbar */}
           {filteredKnowledgeBases.length === 0 ? (
-            <div className="text-center py-6 text-xs text-slate-500 italic">
-              No knowledge bases found for this view. Create one to organize documents.
+            <div className="text-center py-8 text-xs text-slate-500 italic">
+              {kbSearchQuery ? 'No knowledge bases match your search.' : 'No knowledge bases found for this view. Create one to organize documents.'}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filteredKnowledgeBases.map((kb) => (
-                <div
-                  key={kb.id}
-                  onClick={() => setSelectedKbFilter(selectedKbFilter === kb.id ? 'ALL' : kb.id)}
-                  className={`p-4 rounded-xl border transition cursor-pointer relative flex flex-col justify-between ${
-                    selectedKbFilter === kb.id
-                      ? 'bg-violet-950/25 border-violet-500/50 shadow-md shadow-violet-500/10'
-                      : 'bg-black/30 border-white/[0.04] hover:border-white/15'
-                  }`}
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-white truncate">{kb.name}</span>
-                      <span
-                        className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold border ${
-                          kb.scope === 'ORGANIZATION'
-                            ? 'bg-blue-950/40 text-blue-300 border-blue-800/30'
-                            : 'bg-purple-950/40 text-purple-300 border-purple-800/30'
-                        }`}
-                      >
-                        {kb.scope}
-                      </span>
-                    </div>
-                    {kb.description && (
-                      <p className="text-[11px] text-[#98A4C2] line-clamp-2">{kb.description}</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/[0.04] text-[10px] text-slate-400">
-                    <span>{kb._count?.documents || 0} documents</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteKnowledgeBase(kb.id, kb.name);
+            <div className="max-h-72 overflow-y-auto pr-1.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {filteredKnowledgeBases.map((kb) => {
+                  const isSelected = selectedKbFilter === kb.id;
+                  return (
+                    <div
+                      key={kb.id}
+                      onClick={() => {
+                        const nextId = isSelected ? 'ALL' : kb.id;
+                        setSelectedKbFilter(nextId);
+                        if (nextId !== 'ALL') {
+                          setTargetUploadKbId(nextId);
+                          setTestTargetKbId(nextId);
+                        }
                       }}
-                      className="text-slate-500 hover:text-red-400 p-1 transition cursor-pointer"
-                      title="Delete Knowledge Base"
+                      className={`p-4 rounded-xl border transition cursor-pointer relative flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-violet-950/40 border-violet-500 ring-2 ring-violet-500/40 shadow-lg shadow-violet-500/15'
+                          : 'bg-black/30 border-white/[0.04] hover:border-white/15'
+                      }`}
                     >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-white truncate">{kb.name}</span>
+                          <div className="flex items-center gap-1.5">
+                            {isSelected && (
+                              <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                <CheckCircle2 className="w-2.5 h-2.5" /> Selected
+                              </span>
+                            )}
+                            <span
+                              className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold border ${
+                                kb.scope === 'ORGANIZATION'
+                                  ? 'bg-blue-950/40 text-blue-300 border-blue-800/30'
+                                  : 'bg-purple-950/40 text-purple-300 border-purple-800/30'
+                              }`}
+                            >
+                              {kb.scope}
+                            </span>
+                          </div>
+                        </div>
+                        {kb.description && (
+                          <p className="text-[11px] text-[#98A4C2] line-clamp-2">{kb.description}</p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/[0.04] text-[10px] text-slate-400">
+                        <span className={isSelected ? 'text-violet-300 font-semibold' : ''}>
+                          {kb._count?.documents || 0} documents
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteKnowledgeBase(kb.id, kb.name);
+                          }}
+                          className="text-slate-500 hover:text-red-400 p-1 transition cursor-pointer"
+                          title="Delete Knowledge Base"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </section>
@@ -530,29 +625,45 @@ export default function DocumentKnowledgePage() {
                     <input
                       type="file"
                       accept=".pdf,.docx,.doc,.txt,.md,.xlsx,.pptx"
-                      disabled={isUploading}
+                      disabled={isUploading || knowledgeBases.length === 0}
                       onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                      className="block w-full text-xs text-[#98A4C2] file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-[11px] file:font-semibold file:bg-purple-600/20 file:text-purple-300 hover:file:bg-purple-600/35 transition file:cursor-pointer"
+                      className="block w-full text-xs text-[#98A4C2] file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-[11px] file:font-semibold file:bg-purple-600/20 file:text-purple-300 hover:file:bg-purple-600/35 transition file:cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     />
 
                     {/* Target Knowledge Base Selector */}
                     <div>
                       <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
-                        Destination Knowledge Base
+                        Destination Knowledge Base (Required)
                       </label>
                       <select
                         value={targetUploadKbId}
                         onChange={(e) => setTargetUploadKbId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none"
+                        disabled={knowledgeBases.length === 0 || isUploading}
+                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                       >
-                        <option value="">-- General / Default --</option>
-                        {knowledgeBases.map((kb) => (
-                          <option key={kb.id} value={kb.id} className="bg-[#080D1D] text-slate-200">
-                            [{kb.scope}] {kb.name}
-                          </option>
-                        ))}
+                        {knowledgeBases.length === 0 ? (
+                          <option value="" disabled>-- No Knowledge Bases Created --</option>
+                        ) : (
+                          <>
+                            <option value="" disabled>-- Select a Knowledge Base --</option>
+                            {knowledgeBases.map((kb) => (
+                              <option key={kb.id} value={kb.id} className="bg-[#080D1D] text-slate-200">
+                                [{kb.scope}] {kb.name}
+                              </option>
+                            ))}
+                          </>
+                        )}
                       </select>
                     </div>
+
+                    {knowledgeBases.length === 0 && (
+                      <div className="p-2.5 bg-amber-950/30 border border-amber-500/30 rounded-xl text-amber-200 text-xs flex items-start gap-2">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-[10px] text-amber-200/90 leading-relaxed">
+                          Please create a Knowledge Base first using the <strong>+ New Knowledge Base</strong> button before uploading documents.
+                        </p>
+                      </div>
+                    )}
                     
                     {/* Chunking Strategy Option */}
                     <div>
@@ -583,7 +694,7 @@ export default function DocumentKnowledgePage() {
 
                   <button
                     onClick={handleUpload}
-                    disabled={!selectedFile || isUploading}
+                    disabled={!selectedFile || isUploading || !targetUploadKbId || knowledgeBases.length === 0}
                     className="w-full sm:w-auto mt-4 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-600/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isUploading ? (
@@ -609,7 +720,9 @@ export default function DocumentKnowledgePage() {
                         System Ready
                       </div>
                       <p className="text-[10px] text-[#687493] leading-relaxed">
-                        Select a file to begin vector indexing into the chosen Knowledge Base.
+                        {knowledgeBases.length === 0
+                          ? 'Create a Knowledge Base to enable document ingestion.'
+                          : 'Select a file to begin vector indexing into the chosen Knowledge Base.'}
                       </p>
                     </div>
                   )}
@@ -619,34 +732,61 @@ export default function DocumentKnowledgePage() {
 
             {/* Documents Table Card */}
             <div className="bg-[#080D1D]/90 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl">
-              <div className="flex items-center justify-between mb-4 border-b border-white/[0.05] pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-white/[0.05] pb-3">
                 <div className="flex items-center gap-2">
                   <h2 className="text-xs font-bold text-slate-100 uppercase tracking-widest">
-                    Indexed Documents ({documents.length})
+                    Indexed Documents ({filteredDocuments.length})
                   </h2>
                   {selectedKbFilter !== 'ALL' && (
-                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-mono">
-                      Filtered
+                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-mono flex items-center gap-1">
+                      <span>Filtered:</span>
+                      <span className="font-bold text-white truncate max-w-[120px]">
+                        {knowledgeBases.find((k) => k.id === selectedKbFilter)?.name || 'KB'}
+                      </span>
+                      <button
+                        onClick={() => setSelectedKbFilter('ALL')}
+                        className="ml-1 text-slate-400 hover:text-white"
+                        title="Clear Filter"
+                      >
+                        ✕
+                      </button>
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={fetchDocuments}
-                  className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer"
-                >
-                  Refresh ⟳
-                </button>
+
+                <div className="flex items-center gap-2.5">
+                  {/* Search Ingested Documents */}
+                  <div className="relative w-full sm:w-44">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search docs..."
+                      value={docSearchQuery}
+                      onChange={(e) => setDocSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-2.5 py-1 bg-black/40 border border-white/10 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
+                    />
+                  </div>
+
+                  <button
+                    onClick={fetchDocuments}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer shrink-0"
+                  >
+                    Refresh ⟳
+                  </button>
+                </div>
               </div>
 
               {isLoading ? (
-                <div className="text-center py-8 text-xs text-slate-500 font-mono">Loading knowledge base...</div>
-              ) : documents.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-500 font-mono">Loading documents...</div>
+              ) : filteredDocuments.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-500">
-                  No documents found for this filter.
+                  {docSearchQuery || selectedKbFilter !== 'ALL'
+                    ? 'No documents match your search / filter criteria.'
+                    : 'No documents found. Upload a document into a Knowledge Base to begin.'}
                 </div>
               ) : (
-                <div className="space-y-2.5">
-                  {documents.map((doc) => {
+                <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                  {filteredDocuments.map((doc) => {
                     const kb = knowledgeBases.find((k) => k.id === doc.knowledgeSourceId);
                     return (
                       <div
@@ -769,16 +909,59 @@ export default function DocumentKnowledgePage() {
                   </div>
                 </div>
 
+                {/* Generative AI Answer Toggle */}
+                <div className="p-3 bg-black/40 border border-white/[0.06] rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">
+                        Generate AI Answer (Gemini)
+                      </span>
+                      {isGenerationEnabled ? (
+                        <span className="text-[8px] font-mono text-emerald-300 bg-emerald-950/40 border border-emerald-700/40 px-1.5 py-0.5 rounded">
+                          LLM Active
+                        </span>
+                      ) : (
+                        <span className="text-[8px] font-mono text-slate-400 bg-slate-900/60 border border-slate-700/40 px-1.5 py-0.5 rounded">
+                          Retrieval Only
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Modern Toggle Switch */}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isGenerationEnabled}
+                      onClick={() => setIsGenerationEnabled(!isGenerationEnabled)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        isGenerationEnabled ? 'bg-purple-600' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          isGenerationEnabled ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <p className="text-[9px] text-[#8492B4] leading-relaxed">
+                    {isGenerationEnabled
+                      ? '⚡ Generates a grounded response synthesized by Gemini (requires GEMINI_API_KEY in Settings).'
+                      : '📄 Retrieval-only: returns ranked document chunks and citation resources without calling Gemini.'}
+                  </p>
+                </div>
+
                 <button
                   type="submit"
                   disabled={isTesting}
                   className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/20 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   {isTesting ? (
-                    'Searching, Reranking & Expanding...'
+                    isGenerationEnabled ? 'Searching, Reranking & Generating Answer...' : 'Searching & Ranking Chunks...'
                   ) : (
                     <>
-                      <span>Test Retrieval & Answer</span>
+                      <span>{isGenerationEnabled ? 'Test Retrieval & Answer' : 'Test Document Retrieval'}</span>
                       <Zap className="w-3.5 h-3.5" />
                     </>
                   )}
@@ -786,32 +969,66 @@ export default function DocumentKnowledgePage() {
               </form>
 
               {testError && (
-                <div className="mt-4 text-xs text-red-400 bg-red-950/30 border border-red-800/30 p-3 rounded-xl">
-                  {testError}
+                <div className="mt-4 text-xs text-red-400 bg-red-950/30 border border-red-800/30 p-3 rounded-xl space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-red-300">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />
+                    <span>Query Execution Failed</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">{testError}</p>
+                  {testError.includes('GEMINI_API_KEY') && (
+                    <div className="pt-1">
+                      <Link
+                        href="/setting"
+                        className="inline-flex items-center gap-1 text-[10px] text-purple-300 hover:text-purple-200 underline font-medium"
+                      >
+                        Go to Settings &rarr; Configure Gemini API Key
+                      </Link>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Test Result Display */}
               {queryResult && (
                 <div className="mt-4 space-y-3.5 flex-1 overflow-y-auto max-h-[480px] pr-1">
-                  {/* Answer Box */}
-                  <div className="bg-black/50 border border-purple-500/30 p-4 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-bold text-purple-300 uppercase tracking-wider">
-                        Synthesized Answer
-                      </span>
-                      <span className="text-[9px] text-slate-400 font-mono">{queryResult.latencyMs}ms</span>
+                  {/* If generative answer enabled and answer exists */}
+                  {queryResult.answer ? (
+                    <div className="bg-black/50 border border-purple-500/30 p-4 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          Synthesized Answer
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono">{queryResult.latencyMs}ms</span>
+                      </div>
+                      <p className="text-xs text-slate-100 leading-relaxed whitespace-pre-wrap font-sans">
+                        {queryResult.answer}
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-100 leading-relaxed whitespace-pre-wrap">
-                      {queryResult.answer}
-                    </p>
-                  </div>
+                  ) : (
+                    /* Retrieval-only notification banner when generative answer is disabled */
+                    <div className="bg-slate-900/60 border border-slate-700/50 p-3.5 rounded-xl space-y-1.5 text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                          Retrieval-Only Mode Active
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono">{queryResult.latencyMs}ms</span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        Retrieved <strong className="text-white">{queryResult.retrievedCount} chunks</strong> across <strong className="text-white">{queryResult.context.citations.length} sources</strong>. Generative synthesis is disabled.
+                      </p>
+                      <p className="text-[9px] text-[#8492B4]">
+                        Need an AI-synthesized answer? Enable &quot;Generate AI Answer&quot; above and ensure your <code className="bg-black/40 px-1 py-0.5 rounded text-purple-300 font-mono">GEMINI_API_KEY</code> is configured in <Link href="/setting" className="text-purple-400 hover:underline">Settings</Link>.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Citations & Chunks */}
-                  {queryResult.context.citations.length > 0 && (
+                  {queryResult.context.citations.length > 0 ? (
                     <div className="space-y-2">
                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">
-                        Final Context Chunks ({queryResult.context.citations.length})
+                        Matched Resources & Chunks ({queryResult.context.citations.length})
                       </span>
 
                       <div className="space-y-2">
@@ -834,6 +1051,10 @@ export default function DocumentKnowledgePage() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 p-3 text-center border border-white/[0.04] rounded-xl">
+                      No matching documents found for this query.
                     </div>
                   )}
                 </div>

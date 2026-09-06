@@ -9,11 +9,18 @@ try:
 except ImportError:
     HAS_ST = False
 
+def clean_text(text: str) -> str:
+    """Sanitizes text by stripping lone Unicode surrogates and invalid characters."""
+    if not isinstance(text, str):
+        text = str(text)
+    return text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
+
 def hash_embed(text, dims=1024):
     """Generates a unit-normalized 1024-dimension float vector from text hash when PyTorch is unavailable."""
     vec = [0.0] * dims
-    for word in text.lower().split():
-        h = int(hashlib.md5(word.encode('utf-8')).hexdigest(), 16)
+    clean = clean_text(text)
+    for word in clean.lower().split():
+        h = int(hashlib.md5(word.encode('utf-8', errors='ignore')).hexdigest(), 16)
         idx = h % dims
         sign = 1.0 if (h & 1) else -1.0
         vec[idx] += sign
@@ -36,6 +43,9 @@ def main():
             print(json.dumps([]))
             return
         
+        # Sanitize all strings to strip lone Unicode surrogates before tokenization or encoding
+        texts = [clean_text(t) for t in texts]
+
         if HAS_ST:
             try:
                 # Load local model and encode chunks in batches

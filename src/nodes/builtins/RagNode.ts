@@ -67,12 +67,12 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
         maxTokens: 4000,
         citationMode: 'inline',
       },
-      generation: config?.generation || {
-        enabled: true,
-        provider: 'gemini',
-        model: 'gemini-2.5-flash',
-        temperature: 0.2,
-        systemPrompt: '',
+      generation: {
+        enabled: config?.generation?.enabled !== undefined ? config.generation.enabled : true,
+        provider: config?.generation?.provider || 'gemini',
+        model: config?.generation?.model || 'gemini-2.5-flash',
+        temperature: config?.generation?.temperature ?? 0.2,
+        systemPrompt: config?.generation?.systemPrompt || '',
       },
     };
 
@@ -109,6 +109,7 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
         retrievedCount: ragResult.retrievedCount,
         latencyMs: ragResult.latencyMs,
         traceId: ragResult.traceId,
+        generationEnabled: ragConfig.generation.enabled,
       },
       metrics: {
         durationMs,

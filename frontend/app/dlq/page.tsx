@@ -301,9 +301,6 @@ export default function DeadLetterQueuePage() {
                 )}
                 <span className="absolute bottom-[-13px] left-0 right-0 h-[2px] bg-[#8B5CF6] rounded-full" />
               </Link>
-              <span className="text-[10px] font-semibold tracking-wider uppercase text-[#687493] cursor-not-allowed select-none">
-                Runs
-              </span>
             </div>
           </div>
 

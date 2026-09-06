@@ -9,6 +9,7 @@ import AutoCanvasVisual from '@/components/AutoCanvasVisual';
 import { API_URL } from '../../utils/config';
 import { useToast } from '@/context/ToastContext';
 import PasswordRequirements from '@/components/PasswordRequirements';
+import PasswordInput from '@/components/PasswordInput';
 import { getPasswordValidationState } from '@/utils/validation';
 
 export default function LoginPage() {
@@ -219,8 +220,7 @@ export default function LoginPage() {
                     Forgot password?
                   </button>
                 </div>
-                <input
-                  type="password"
+                <PasswordInput
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -325,15 +325,9 @@ export default function LoginPage() {
 
                 <div className="space-y-3 text-xs text-slate-300">
                   <div className="p-3 bg-black/30 rounded-xl border border-white/[0.04]">
-                    <span className="font-semibold text-white block mb-1">Organization Members:</span>
+                    <span className="font-semibold text-white block mb-1">Account Recovery:</span>
                     <span className="text-slate-400 text-[11px]">
-                      Please contact your Organization Administrator or Team Owner to reset your account credentials.
-                    </span>
-                  </div>
-                  <div className="p-3 bg-black/30 rounded-xl border border-white/[0.04]">
-                    <span className="font-semibold text-white block mb-1">Single Developers & Administrators:</span>
-                    <span className="text-slate-400 text-[11px]">
-                      Access can be restored by the database owner via the emergency CLI terminal utility.
+                      Please contact your Organization Administrator or workspace owner to restore access to your account.
                     </span>
                   </div>
                 </div>
@@ -389,8 +383,7 @@ export default function LoginPage() {
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                     New Password
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     required
                     value={forgotNewPassword}
                     onChange={(e) => setForgotNewPassword(e.target.value)}
@@ -403,8 +396,7 @@ export default function LoginPage() {
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                     Confirm New Password
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     required
                     value={forgotConfirmPassword}
                     onChange={(e) => setForgotConfirmPassword(e.target.value)}

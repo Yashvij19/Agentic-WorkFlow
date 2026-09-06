@@ -235,27 +235,37 @@ export async function ragRoutes(server: FastifyInstance) {
         try {
             const { role, permissions } = await workflowService.getUserAccess(userId);
 
-            // Verify Knowledge Base Permissions
-            if (body.knowledgeSourceId) {
-                const kb = await prisma.knowledgeSource.findFirst({
-                    where: { id: body.knowledgeSourceId, organizationId: orgId }
+            // Verify Mandatory Knowledge Base & Permissions
+            if (!body.knowledgeSourceId) {
+                return reply.code(400).send({
+                    error: 'A target Knowledge Base is required for document ingestion. Please select or create a Knowledge Base first.'
                 });
+            }
 
-                if (!kb) {
-                    return reply.code(404).send({ error: 'Target Knowledge Base not found.' });
+            const kb = await prisma.knowledgeSource.findFirst({
+                where: { id: body.knowledgeSourceId, organizationId: orgId }
+            });
+
+            if (!kb) {
+                return reply.code(404).send({ error: 'Target Knowledge Base not found.' });
+            }
+
+            if (role === 'MEMBER') {
+                if (kb.scope === 'ORGANIZATION' && permissions.canChangeOrgKnowledgeBase !== true) {
+                    return reply.code(403).send({
+                        error: 'Access Denied: You do not have permission to upload documents to organization knowledge bases.'
+                    });
                 }
-
-                if (role === 'MEMBER') {
-                    if (kb.scope === 'ORGANIZATION' && permissions.canChangeOrgKnowledgeBase !== true) {
-                        return reply.code(403).send({
-                            error: 'Access Denied: You do not have permission to upload documents to organization knowledge bases.'
-                        });
-                    }
-                    if (kb.scope === 'PERSONAL' && kb.createdByUserId !== userId) {
-                        return reply.code(403).send({
-                            error: 'Access Denied: You cannot upload documents to another member\'s personal knowledge base.'
-                        });
-                    }
+                if (kb.scope === 'PERSONAL' && kb.createdByUserId !== userId) {
+                    return reply.code(403).send({
+                        error: 'Access Denied: You cannot upload documents to another member\'s personal knowledge base.'
+                    });
+                }
+            } else if (role === 'SINGLE') {
+                if (kb.createdByUserId !== userId) {
+                    return reply.code(403).send({
+                        error: 'Access Denied: You cannot upload documents to another user\'s knowledge base.'
+                    });
                 }
             }
 
@@ -352,38 +362,38 @@ export async function ragRoutes(server: FastifyInstance) {
 
         try{
             const activeConfig: RAGConfiguration = {
-                mode: 'simple',
-                useCaseProfile: 'GENERAL_QA',
+                mode: config?.mode || 'simple',
+                useCaseProfile: config?.useCaseProfile || 'GENERAL_QA',
                 ingestion: {
-                    parser: 'auto',
-                    chunkSize: 800,
-                    chunkOverlap: 100,
-                    chunkStrategy: 'recursive',
+                    parser: config?.ingestion?.parser || 'auto',
+                    chunkSize: config?.ingestion?.chunkSize || 800,
+                    chunkOverlap: config?.ingestion?.chunkOverlap || 100,
+                    chunkStrategy: config?.ingestion?.chunkStrategy || 'recursive',
                 },
                 retrieval: {
-                    mode: 'hybrid',
-                    topK: 10,
-                    vectorWeight: 0.7,
-                    keywordWeight: 0.3,
-                    minScore: 0.3,
+                    mode: config?.retrieval?.mode || 'hybrid',
+                    topK: config?.retrieval?.topK || 10,
+                    vectorWeight: config?.retrieval?.vectorWeight ?? 0.7,
+                    keywordWeight: config?.retrieval?.keywordWeight ?? 0.3,
+                    minScore: config?.retrieval?.minScore ?? 0.3,
                 },
                 reranker: {
-                    provider: 'none',
-                    topN: 5,
+                    provider: config?.reranker?.provider || 'none',
+                    topN: config?.reranker?.topN || 5,
+                    minScore: config?.reranker?.minScore,
                 },
                 context: {
-                    strategy: 'top_chunks',
-                    maxTokens: 4000,
-                    citationMode: 'inline',
+                    strategy: config?.context?.strategy || 'top_chunks',
+                    maxTokens: config?.context?.maxTokens || 4000,
+                    citationMode: config?.context?.citationMode || 'inline',
                 },
                 generation: {
-                    enabled: true,
-                    provider: 'gemini',
-                    model: 'gemini-2.5-flash',
-                    temperature: 0.2,
-                    systemPrompt: '',
+                    enabled: config?.generation?.enabled !== undefined ? config.generation.enabled : true,
+                    provider: config?.generation?.provider || 'gemini',
+                    model: config?.generation?.model || 'gemini-2.5-flash',
+                    temperature: config?.generation?.temperature ?? 0.2,
+                    systemPrompt: config?.generation?.systemPrompt || '',
                 },
-                ...(config || {}),
             };
 
              const result = await ragEngine.execute({
@@ -425,13 +435,11 @@ export async function ragRoutes(server: FastifyInstance) {
             // Restrict members to accessible knowledge sources
             if (role === 'MEMBER') {
                 whereClause.OR = [
-                    { knowledgeSourceId: null },
                     { knowledgeSource: { scope: 'ORGANIZATION' } },
                     { knowledgeSource: { scope: 'PERSONAL', createdByUserId: userId } }
                 ];
             } else if (role === 'SINGLE') {
                 whereClause.OR = [
-                    { knowledgeSourceId: null },
                     { knowledgeSource: { createdByUserId: userId } }
                 ];
             }

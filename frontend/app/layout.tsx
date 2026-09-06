@@ -15,6 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AetherFlow - Autonomous Agentic Workflow Engine",
   description: "Enterprise-grade autonomous AI workflow engine with DAG orchestration, self-healing guardrails, and hybrid vector RAG.",
+  icons: {
+    icon: "/logo.svg",
+    shortcut: "/logo.svg",
+    apple: "/logo.svg",
+  },
 };
 
 import { ToastProvider } from "@/context/ToastContext";

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AutoCanvasVisual from '@/components/AutoCanvasVisual';
 import PasswordRequirements from '@/components/PasswordRequirements';
+import PasswordInput from '@/components/PasswordInput';
 import { getPasswordValidationState } from '@/utils/validation';
 import { API_URL } from '@/utils/config';
 import TwoFactorSetupModal from '@/components/TwoFactorSetupModal';
@@ -387,8 +388,7 @@ export default function RegisterPage() {
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 pl-1">
                         Secure Password
                       </label>
-                      <input
-                        type="password"
+                      <PasswordInput
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -477,8 +477,7 @@ export default function RegisterPage() {
                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 pl-1">
                             Secure Password
                           </label>
-                          <input
-                            type="password"
+                          <PasswordInput
                             required
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
@@ -528,8 +527,7 @@ export default function RegisterPage() {
                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 pl-1">
                             Secure Password
                           </label>
-                          <input
-                            type="password"
+                          <PasswordInput
                             required
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}

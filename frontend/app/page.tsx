@@ -42,10 +42,9 @@ export default function LandingPage() {
             <a href="#pipeline" className="hover:text-white transition-colors duration-200">Pipeline Engine</a>
             <Link 
               href="/docs" 
-              className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 transition-colors duration-200 font-bold"
+              className="text-cyan-400 hover:text-cyan-300 transition-colors duration-200 font-bold"
             >
-              <span>Docs</span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono">v2.4</span>
+              Documentation
             </Link>
           </nav>
 

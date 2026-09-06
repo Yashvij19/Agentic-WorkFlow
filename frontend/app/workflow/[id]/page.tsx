@@ -584,7 +584,7 @@ export default function WorkflowWorkspace() {
           prompt: type === 'agent' ? 'Analyze data: {{node_1.output}}' : undefined,
           systemInstruction: type === 'agent' ? 'Be concise.' : undefined,
           method: type === 'api' ? 'GET' : undefined,
-          url: type === 'api' ? 'https://api.github.com' : undefined,
+          url: type === 'api' ? '' : undefined,
           output: type === 'input' ? 'Trigger payload data.' : undefined,
           code: type === 'custom_code'
             ? `module.exports = async function(inputs, context) {\n  // Access inputs or context['nodeId']\n  console.log("Processing inputs:", inputs);\n  return inputs;\n};`
@@ -599,13 +599,14 @@ export default function WorkflowWorkspace() {
           indexAlias: type === 'foreach' ? '$index' : undefined,
           mode: type === 'guardrail' ? 'strict_json' : undefined,
           maxRetries: type === 'guardrail' ? 3 : undefined,
-          requiredKeys: type === 'guardrail' ? ['summary'] : undefined,
+          requiredKeys: type === 'guardrail' ? [] : undefined,
           bannedWords: type === 'guardrail' ? [] : undefined,
           regexPattern: type === 'guardrail' ? '' : undefined,
           regexFlags: type === 'guardrail' ? 'i' : undefined,
           llmJudgePrompt: type === 'guardrail' ? '' : undefined,
-          customErrorMessage: type === 'guardrail' ? 'Return strictly valid JSON only without markdown code fences.' : undefined,
+          customErrorMessage: type === 'guardrail' ? '' : undefined,
           targetNodeId: type === 'guardrail' ? '' : undefined,
+          generation: type === 'rag_query' ? { enabled: true } : undefined,
         },
       };
 

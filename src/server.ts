@@ -35,6 +35,21 @@ const server: FastifyInstance = Fastify({
         },
 });
 
+// Gracefully accept empty JSON request bodies (e.g. POST requests without payload)
+server.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body: string, done) => {
+    try {
+        if (!body || body.trim() === '') {
+            done(null, {});
+            return;
+        }
+        const json = JSON.parse(body);
+        done(null, json);
+    } catch (err: any) {
+        err.statusCode = 400;
+        done(err, undefined);
+    }
+});
+
 server.addHook('onRequest', async (request, reply) => {
     const origin = process.env.FRONTEND_URL || '*';
     reply.header('Access-Control-Allow-Origin', origin);
@@ -230,10 +245,19 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 const start = async () => {
     try {
         const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
-        await server.listen({
-            port: PORT, 
-            host: '0.0.0.0'
-        });
+        const host = process.env.HOST || '::';
+        try {
+            await server.listen({
+                port: PORT, 
+                host: host
+            });
+        } catch (bindErr) {
+            server.log.warn(`Could not bind to host '${host}', falling back to '0.0.0.0'`);
+            await server.listen({
+                port: PORT,
+                host: '0.0.0.0'
+            });
+        }
 
         server.log.info(`Server is ready to accept connections on port ${PORT}.`);
 
