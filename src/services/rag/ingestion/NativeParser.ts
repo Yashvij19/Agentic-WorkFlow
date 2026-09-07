@@ -20,7 +20,9 @@ export class NativeParser implements DocumentParser {
         chunkSize:number , chunkOverlap:number
     }):Promise<NormalizedDocument>{
 
-        const rawContent=input.contentBuffer? input.contentBuffer.toString('utf-8'):input.source;
+        const rawContent = (input.contentBuffer ? input.contentBuffer.toString('utf-8') : input.source)
+            .replace(/\0/g, '')
+            .replace(/[\uD800-\uDFFF]/g, '');
 
         // 1. Segment text into recursive chunks in Node.js
         const chunkTexts=this.recursiveChunkText(rawContent ,options.chunkSize , options.chunkOverlap );

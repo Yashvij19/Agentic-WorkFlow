@@ -10,6 +10,19 @@ import { HierarchicalChunker } from './chunking/HierarchicalChunker';
 import { OKFParser } from './parsers/OKFParser';
 import { GeminiEmbedder } from '../embeddings/GeminiEmbedder';
 
+/**
+ * Sanitizes strings before database insertion into PostgreSQL:
+ * - Strips null bytes (\0 or \u0000) which violate PostgreSQL UTF-8 text encoding rules (error code 22021).
+ * - Strips lone Unicode surrogates (U+D800 to U+DFFF) which cause UTF-8 serialization errors.
+ */
+export function sanitizePgText(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/\0/g, '')
+    .replace(/[\uD800-\uDFFF]/g, '')
+    .trim();
+}
+
 export class IngestionManager {
   private nativeParser = new NativeParser();
   private hierarchicalChunker = new HierarchicalChunker();
@@ -37,11 +50,12 @@ export class IngestionManager {
       });
     }
 
-    const rawDocText = parsedDoc.rawContent || '';
+    const rawDocText = sanitizePgText(parsedDoc.rawContent || '');
+    const cleanNormalized = sanitizePgText(parsedDoc.normalizedContent || '');
 
     // 2. Phase 4: OKF YAML Frontmatter & Graph Relation Extraction
     const okfResult = this.okfParser.parse(rawDocText, input.name);
-    const documentContent = okfResult.cleanContent || parsedDoc.normalizedContent || rawDocText;
+    const documentContent = sanitizePgText(okfResult.cleanContent || cleanNormalized || rawDocText);
 
     // 3. Pre-compute hierarchical chunks and ML embeddings OUTSIDE of the DB transaction
     const isHierarchical =
@@ -100,11 +114,14 @@ export class IngestionManager {
         }
 
         // Save the Document record
+        const docName = sanitizePgText(okfResult.title || input.name);
+        const docSource = sanitizePgText(input.source || 'Direct Upload');
+
         const document = await tx.document.create({
           data: {
-            name: okfResult.title || input.name,
+            name: docName,
             mimeType: input.mimeType,
-            source: input.source,
+            source: docSource,
             rawContent: rawDocText,
             normalizedContent: documentContent,
             organizationId: orgId,
@@ -118,7 +135,7 @@ export class IngestionManager {
           for (const parent of parentChunks) {
             const dbParent = await tx.chunk.create({
               data: {
-                content: parent.content,
+                content: sanitizePgText(parent.content),
                 documentId: document.id,
                 organizationId: orgId,
               },
@@ -129,7 +146,7 @@ export class IngestionManager {
 
               const dbChild = await tx.chunk.create({
                 data: {
-                  content: child.content,
+                  content: sanitizePgText(child.content),
                   embeddingJson: embedding ? JSON.stringify(embedding) : null,
                   parentId: dbParent.id,
                   documentId: document.id,
@@ -141,18 +158,18 @@ export class IngestionManager {
               const metadataItems: Array<{ key: string; value: any }> = [
                 { key: 'sequenceIndex', value: JSON.stringify(child.sequenceIndex) },
                 { key: 'parentId', value: JSON.stringify(dbParent.id) },
-                { key: 'filename', value: JSON.stringify(input.name) },
+                { key: 'filename', value: JSON.stringify(docName) },
               ];
 
               // Phase 4: Attach OKF Frontmatter attributes to metadata
               if (okfResult.hasFrontmatter) {
                 metadataItems.push({
                   key: 'entityType',
-                  value: JSON.stringify(okfResult.entityType),
+                  value: JSON.stringify(sanitizePgText(okfResult.entityType)),
                 });
                 metadataItems.push({
                   key: 'entityName',
-                  value: JSON.stringify(okfResult.entityName),
+                  value: JSON.stringify(sanitizePgText(okfResult.entityName)),
                 });
               }
 
@@ -167,8 +184,8 @@ export class IngestionManager {
               await tx.chunkMetadata.createMany({
                 data: metadataItems.map((m) => ({
                   chunkId: dbChild.id,
-                  key: m.key,
-                  value: m.value,
+                  key: sanitizePgText(m.key),
+                  value: sanitizePgText(typeof m.value === 'string' ? m.value : JSON.stringify(m.value)),
                   organizationId: orgId,
                 })),
               });
@@ -181,7 +198,7 @@ export class IngestionManager {
             seq++;
             const dbChunk = await tx.chunk.create({
               data: {
-                content: chunk.content,
+                content: sanitizePgText(chunk.content),
                 embeddingJson: chunk.embedding ? JSON.stringify(chunk.embedding) : null,
                 documentId: document.id,
                 organizationId: orgId,
@@ -192,15 +209,15 @@ export class IngestionManager {
               ...chunk.metadata,
               sequenceIndex: seq,
             }).map(([key, val]) => ({
-              key,
-              value: JSON.stringify(val),
+              key: sanitizePgText(key),
+              value: sanitizePgText(typeof val === 'string' ? val : JSON.stringify(val)),
             }));
 
             // Phase 4: Index OKF directed graph relations
             for (const relation of okfResult.relations) {
               metadataItems.push({
                 key: 'relation',
-                value: JSON.stringify(relation),
+                value: sanitizePgText(JSON.stringify(relation)),
               });
             }
 
