@@ -69,6 +69,7 @@ export default function WorkflowWorkspace() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isSavingBlueprint, setIsSavingBlueprint] = useState(false);
   const [executionMessage, setExecutionMessage] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
@@ -323,6 +324,7 @@ export default function WorkflowWorkspace() {
       return false;
     }
 
+    if (!isSilent) setIsSavingBlueprint(true);
     const token = localStorage.getItem('token');
     try {
       const res = await fetch(`${API_URL}/api/workflow/${id}`, {
@@ -350,6 +352,8 @@ export default function WorkflowWorkspace() {
       }
       console.error('Auto-save error:', err.message);
       return false;
+    } finally {
+      if (!isSilent) setIsSavingBlueprint(false);
     }
   };
 
@@ -622,6 +626,7 @@ export default function WorkflowWorkspace() {
       <CanvasHeader
         title={workflowName}
         isExecuting={isExecuting}
+        isSaving={isSavingBlueprint}
         executionMessage={executionMessage}
         workflowStatus={workflowStatus}
         canToggleStatus={canToggleStatus}

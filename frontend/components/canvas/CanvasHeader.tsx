@@ -9,6 +9,7 @@ interface CanvasHeaderProps {
   title: string;
   isExecuting: boolean;
   executionMessage: string;
+  isSaving?: boolean;
   workflowStatus?: string;
   canToggleStatus?: boolean;
   canEdit?: boolean;
@@ -21,6 +22,7 @@ export default function CanvasHeader({
   title,
   isExecuting,
   executionMessage,
+  isSaving = false,
   workflowStatus = 'ACTIVE',
   canToggleStatus = false,
   canEdit = true,
@@ -94,9 +96,11 @@ export default function CanvasHeader({
         {canEdit && (
           <button
             onClick={onSave}
-            className="px-4 py-2 bg-white/[0.03] hover:bg-white/[0.08] border border-white/10 text-xs font-semibold rounded-lg transition cursor-pointer text-slate-200 hover:text-white"
+            disabled={isSaving}
+            className="px-4 py-2 bg-white/[0.03] hover:bg-white/[0.08] border border-white/10 text-xs font-semibold rounded-lg transition cursor-pointer text-slate-200 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
-            Save Schema
+            {isSaving && <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+            <span>{isSaving ? 'Saving...' : 'Save Schema'}</span>
           </button>
         )}
 

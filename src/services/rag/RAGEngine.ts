@@ -67,7 +67,7 @@ export class RAGEngine {
       });
       if (!cred || !cred.encryptedData) {
         throw new Error(
-          'GEMINI_API_KEY credential not found for organization. Please configure API keys under Settings.'
+          'Please configure the LLM Key in the credentials manager first.'
         );
       }
     }
