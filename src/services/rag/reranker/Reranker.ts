@@ -40,41 +40,22 @@ export class LocalCrossEncoderReranker implements IReranker {
 
             child.on('close', (code) => {
                 if (code !== 0) {
-                    return reject(
-                        new Error(
-                            `Reranker worker failed with code ${code}. Stderr: ${stderrData}`
-                        )
-                    );
+                    console.warn(`⚠️ [Reranker] Local CrossEncoder worker failed with code ${code} (${stderrData.trim()}). Falling back to SimpleLexicalReranker.`);
+                    return resolve(new SimpleLexicalReranker().rerank(query, candidates, options));
                 }
                 try {
                     // Output format from python: [{ index: 0, score: 0.85 }, ...]
-
-                    const scores: Array<{ index: number; score: number }> = JSON.parse(stdoutData.trim());
-
-                    // Map cross-encoder scores back to candidate chunks
-
-                    const reranked: RetrievalResult[] = scores.filter(
-                        (item) => item.index >= 0 && item.index < candidates.length
-                    ).map((item) => {
-                        const original = candidates[item.index];
-                        return {
-                            ...original,
-                            initialRank: item.index + 1,
-                            score: Number(item.score.toFixed(6)),
-                        };
-                    });
-
-                    // Sort descending by new cross-encoder score
-
-                    const sorted = reranked.sort((a, b) => b.score - a.score).slice(0, options.topN);
-                    resolve(sorted);
-
-                } catch (err: any) {
-                    reject(
-                        new Error(
-                            `Failed to parse reranker output: ${err.message}. Raw output: ${stdoutData}`
-                        )
+                    const scoredIndices: Array<{ index: number; score: number }> = JSON.parse(
+                        stdoutData.trim()
                     );
+                    const scored = scoredIndices.map((item) => ({
+                        ...candidates[item.index],
+                        initialRank: item.index + 1,
+                        score: item.score,
+                    }));
+                } catch (err: any) {
+                    console.warn(`⚠️ [Reranker] Failed to parse CrossEncoder output (${err.message}). Falling back to SimpleLexicalReranker.`);
+                    return resolve(new SimpleLexicalReranker().rerank(query, candidates, options));
                 }
             });
             // Prepare payload and stream into stdin
@@ -154,6 +135,10 @@ export class NoOpReranker implements IReranker{
  */
 export class RerankerFactory {
   static get(provider: RerankerProvider): IReranker {
+    // In production (Render), auto-switch to pure TypeScript lexical reranker to avoid Python/PyTorch dependencies and protect 512MB RAM
+    if (process.env.NODE_ENV === 'production' && provider === 'local_cross_encoder') {
+      return new SimpleLexicalReranker();
+    }
     switch (provider) {
       case 'local_cross_encoder':
         return new LocalCrossEncoderReranker();

@@ -42,7 +42,15 @@ export class IngestionManager {
     let parsedDoc: NormalizedDocument;
 
     if (useMarkItDown) {
-      parsedDoc = await this.parseWithMarkItDown(input, config.ingestion.chunkSize, config.ingestion.chunkOverlap);
+      try {
+        parsedDoc = await this.parseWithMarkItDown(input, config.ingestion.chunkSize, config.ingestion.chunkOverlap);
+      } catch (markitdownErr: any) {
+        console.warn(`⚠️ [IngestionManager] MarkItDown parser failed (${markitdownErr.message}). Gracefully falling back to NativeParser.`);
+        parsedDoc = await this.nativeParser.parse(input, {
+          chunkSize: config.ingestion.chunkSize,
+          chunkOverlap: config.ingestion.chunkOverlap,
+        });
+      }
     } else {
       parsedDoc = await this.nativeParser.parse(input, {
         chunkSize: config.ingestion.chunkSize,
@@ -261,8 +269,13 @@ export class IngestionManager {
     const textExtensions = ['.txt', '.md', '.markdown', '.json', '.csv', '.yaml', '.yml', '.js', '.ts', '.html'];
     if (textExtensions.includes(ext)) return false;
 
+    // In production (Render), default to nativeParser (pdf-parse) for PDFs for instant speed & zero Python/pip dependency
+    if (process.env.NODE_ENV === 'production' && ext === '.pdf') {
+      return false;
+    }
+
     const binaryExtensions = ['.pdf', '.docx', '.xlsx', '.xls', '.pptx', '.ppt', '.zip'];
-    return binaryExtensions.includes(ext) || !this.nativeParser.canParse(input.mimeType);
+    return binaryExtensions.includes(ext) || !this.nativeParser.canParse(input.mimeType, input.name);
   }
 
   /**

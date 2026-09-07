@@ -7,20 +7,40 @@ import { GeminiEmbedder } from '../embeddings/GeminiEmbedder';
 
 export class NativeParser implements DocumentParser {
 
-    canParse(mineType:string):boolean{
-        const cleanMime=mineType.toLowerCase();
+    canParse(mimeType: string, filename?: string): boolean {
+        const cleanMime = (mimeType || '').toLowerCase();
+        const ext = filename ? path.extname(filename).toLowerCase() : '';
         return (
-            cleanMime.startsWith('text/')||
-            cleanMime==='application/json'||
-            cleanMime === 'application/javascript'
-        )
+            cleanMime.startsWith('text/') ||
+            cleanMime === 'application/json' ||
+            cleanMime === 'application/javascript' ||
+            cleanMime === 'application/pdf' ||
+            ext === '.pdf'
+        );
     }
 
-    async parse(input:IngestionInput , options:{
-        chunkSize:number , chunkOverlap:number
-    }):Promise<NormalizedDocument>{
+    async parse(input: IngestionInput, options: {
+        chunkSize: number; chunkOverlap: number;
+    }): Promise<NormalizedDocument> {
+        let rawContent = '';
+        const ext = path.extname(input.name).toLowerCase();
+        const isPdf = (input.mimeType || '').toLowerCase() === 'application/pdf' || ext === '.pdf';
 
-        const rawContent = (input.contentBuffer ? input.contentBuffer.toString('utf-8') : input.source)
+        if (isPdf && input.contentBuffer) {
+            try {
+                const { PDFParse } = await import('pdf-parse');
+                const parser = new PDFParse({ data: input.contentBuffer });
+                const parsed = await parser.getText();
+                rawContent = parsed.text || '';
+            } catch (pdfErr: any) {
+                console.warn(`⚠️ [NativeParser] pdf-parse failed (${pdfErr.message}). Falling back to string decode.`);
+                rawContent = input.contentBuffer.toString('utf-8');
+            }
+        } else {
+            rawContent = input.contentBuffer ? input.contentBuffer.toString('utf-8') : input.source;
+        }
+
+        rawContent = rawContent
             .replace(/\0/g, '')
             .replace(/[\uD800-\uDFFF]/g, '');
 
