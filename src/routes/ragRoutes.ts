@@ -4,6 +4,7 @@ import { IngestionManager } from "../services/rag/ingestion/IngestionManager";
 import { RAGEngine } from "../services/rag/RAGEngine";
 import { IngestionInput, RAGConfiguration } from '../services/rag/types';
 import { workflowService } from "../services/workflowService";
+import { GeminiEmbedder } from "../services/rag/embeddings/GeminiEmbedder";
 
 export async function ragRoutes(server: FastifyInstance) {
     const ingestionManager = new IngestionManager();
@@ -269,6 +270,16 @@ export async function ragRoutes(server: FastifyInstance) {
                 }
             }
 
+            // Fail-Fast: Verify LLM credentials upfront before doing expensive parsing or chunking
+            if (GeminiEmbedder.getProvider() === 'gemini') {
+                const apiKey = await GeminiEmbedder.getApiKey(orgId);
+                if (!apiKey) {
+                    return reply.code(400).send({
+                        error: 'Please configure the LLM Key in the credentials manager first.'
+                    });
+                }
+            }
+
             const input: IngestionInput = {
                 name: body.name,
                 mimeType: body.mimeType || 'text/plain',
@@ -358,6 +369,16 @@ export async function ragRoutes(server: FastifyInstance) {
 
         if (!query) {
             return reply.code(400).send({ error: 'Search query is required.' });
+        }
+
+        // Fail-Fast: Verify LLM credentials upfront before running search or generation
+        if (GeminiEmbedder.getQueryProvider() === 'gemini' || config?.generation?.enabled !== false) {
+            const queryApiKey = await GeminiEmbedder.getApiKey(orgId);
+            if (!queryApiKey) {
+                return reply.code(400).send({
+                    error: 'Please configure the LLM Key in the credentials manager first.'
+                });
+            }
         }
 
         try{

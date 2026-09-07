@@ -110,56 +110,62 @@ export class GeminiEmbedder {
     }
 
     const cloudRes = await this.getGeminiCloudEmbeddings([cleanQuery], orgId);
-    return cloudRes[0] || this.fallbackVector(cleanQuery);
+    if (!cloudRes[0]) {
+      throw new Error('Please configure the LLM Key in the credentials manager first.');
+    }
+    return cloudRes[0];
   }
 
   /**
-   * Encapsulates Google Gemini Cloud API embeddings with batching and fallback
+   * Encapsulates Google Gemini Cloud API embeddings with batching
    */
   private static async getGeminiCloudEmbeddings(sanitizedTexts: string[], orgId?: string): Promise<number[][]> {
     const apiKey = await this.getApiKey(orgId);
 
-    if (apiKey) {
-      try {
-        const { GoogleGenAI } = await import('@google/genai');
-        const ai = new GoogleGenAI({ apiKey });
-
-        const results: number[][] = [];
-        // Batch in slices of 50 to respect Gemini API batch size
-        for (let i = 0; i < sanitizedTexts.length; i += 50) {
-          const slice = sanitizedTexts.slice(i, i + 50);
-          let response: any;
-          try {
-            response = await ai.models.embedContent({
-              model: 'gemini-embedding-001',
-              contents: slice,
-              config: { outputDimensionality: 768 },
-            });
-          } catch {
-            response = await ai.models.embedContent({
-              model: 'text-embedding-004',
-              contents: slice,
-            });
-          }
-
-          if (response.embeddings) {
-            for (let j = 0; j < response.embeddings.length; j++) {
-              const vals = response.embeddings[j].values;
-              results.push(vals || this.fallbackVector(slice[j]));
-            }
-          }
-        }
-
-        if (results.length === sanitizedTexts.length) {
-          return results;
-        }
-      } catch (err: any) {
-        console.warn(`⚠️ [Embedder] Gemini API call failed, using fallback: ${err.message}`);
-      }
+    if (!apiKey) {
+      throw new Error('Please configure the LLM Key in the credentials manager first.');
     }
 
-    // Fallback normalized vector
-    return sanitizedTexts.map((t) => this.fallbackVector(t));
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+
+      const results: number[][] = [];
+      // Batch in slices of 50 to respect Gemini API batch size
+      for (let i = 0; i < sanitizedTexts.length; i += 50) {
+        const slice = sanitizedTexts.slice(i, i + 50);
+        let response: any;
+        try {
+          response = await ai.models.embedContent({
+            model: 'gemini-embedding-001',
+            contents: slice,
+            config: { outputDimensionality: 768 },
+          });
+        } catch {
+          response = await ai.models.embedContent({
+            model: 'text-embedding-004',
+            contents: slice,
+          });
+        }
+
+        if (response.embeddings) {
+          for (let j = 0; j < response.embeddings.length; j++) {
+            const vals = response.embeddings[j].values;
+            if (!vals) {
+              throw new Error('Gemini API returned an empty embedding vector.');
+            }
+            results.push(vals);
+          }
+        }
+      }
+
+      if (results.length === sanitizedTexts.length) {
+        return results;
+      }
+      throw new Error(`Embedding count mismatch: expected ${sanitizedTexts.length}, got ${results.length}`);
+    } catch (err: any) {
+      throw new Error(`Failed to generate embeddings: ${err.message}`);
+    }
   }
 
   /**
@@ -191,25 +197,5 @@ export class GeminiEmbedder {
       child.stdin.write(JSON.stringify(texts));
       child.stdin.end();
     });
-  }
-
-  /**
-   * Generates a unit-normalized float vector fallback when both local and cloud are offline
-   */
-  static fallbackVector(text: string, dims = 768): number[] {
-    const vec = new Array(dims).fill(0);
-    const words = text.toLowerCase().split(/\s+/);
-    for (const w of words) {
-      const hash = crypto.createHash('md5').update(w).digest();
-      const idx = hash.readUInt16BE(0) % dims;
-      const sign = (hash[2] & 1) ? 1.0 : -1.0;
-      vec[idx] += sign;
-    }
-    let norm = 0;
-    for (let i = 0; i < dims; i++) {
-      norm += vec[i] * vec[i];
-    }
-    norm = Math.sqrt(norm) || 1.0;
-    return vec.map((v) => v / norm);
   }
 }

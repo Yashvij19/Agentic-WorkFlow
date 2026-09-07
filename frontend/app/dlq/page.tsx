@@ -24,7 +24,8 @@ import {
   Zap,
   CheckCircle2,
   SlidersHorizontal,
-  Flame
+  Flame,
+  Loader2
 } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { canAccessDLQ } from '../../utils/permissions';
@@ -389,7 +390,11 @@ export default function DeadLetterQueuePage() {
                     className="px-3.5 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-xs font-semibold text-red-300 rounded-xl transition duration-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     title="Purge failed items from Redis cache"
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    {clearingRedis ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    )}
                     <span>{clearingRedis ? 'Purging...' : 'Purge Redis Cache'}</span>
                   </button>
                 )}

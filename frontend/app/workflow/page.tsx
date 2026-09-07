@@ -23,11 +23,13 @@ export default function WorkflowsDashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newWorkflowName, setNewWorkflowName] = useState('');
   const [createError, setCreateError] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
 
   // Delete Modal
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingName, setDeletingName] = useState('');
+  const [isDeletingWorkflow, setIsDeletingWorkflow] = useState(false);
 
   // Rename Modal
   const [showRenameModal, setShowRenameModal] = useState(false);
@@ -125,6 +127,7 @@ export default function WorkflowsDashboard() {
       { id: 'e1-2', source: 'node_1', target: 'node_2', animated: true }
     ];
 
+    setIsCreating(true);
     try {
       const res = await fetch(`${API_URL}/api/workflow`, {
         method: 'POST',
@@ -145,6 +148,8 @@ export default function WorkflowsDashboard() {
       router.push(`/workflow/${data.workflowId}`);
     } catch (err: any) {
       setCreateError(err.message);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -156,6 +161,7 @@ export default function WorkflowsDashboard() {
   // Backend integrated Delete
   const handleDeleteConfirm = async () => {
     if (!deletingId) return;
+    setIsDeletingWorkflow(true);
     const token = localStorage.getItem('token');
     try {
       const res = await fetch(`${API_URL}/api/workflow/${deletingId}`, {
@@ -172,6 +178,8 @@ export default function WorkflowsDashboard() {
       setShowDeleteModal(false);
     } catch (err: any) {
       toast.error(`Delete error: ${err.message}`);
+    } finally {
+      setIsDeletingWorkflow(false);
     }
   };
 
@@ -720,9 +728,11 @@ export default function WorkflowsDashboard() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-xs font-bold tracking-wider uppercase rounded-xl transition text-white"
+                  disabled={isCreating}
+                  className="px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-xs font-bold tracking-wider uppercase rounded-xl transition text-white cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
-                  Create Blueprint
+                  {isCreating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isCreating ? 'Creating Blueprint...' : 'Create Blueprint'}</span>
                 </button>
               </div>
             </form>
@@ -753,9 +763,11 @@ export default function WorkflowsDashboard() {
               </button>
               <button
                 onClick={handleDeleteConfirm}
-                className="px-5 py-2.5 bg-[#EF4444]/15 hover:bg-[#EF4444] border border-[#EF4444]/35 hover:border-transparent text-xs font-bold tracking-wider uppercase rounded-xl text-[#EF4444] hover:text-white transition duration-200 cursor-pointer"
+                disabled={isDeletingWorkflow}
+                className="px-5 py-2.5 bg-[#EF4444]/15 hover:bg-[#EF4444] border border-[#EF4444]/35 hover:border-transparent text-xs font-bold tracking-wider uppercase rounded-xl text-[#EF4444] hover:text-white transition duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                Delete Workflow
+                {isDeletingWorkflow && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isDeletingWorkflow ? 'Deleting...' : 'Delete Workflow'}</span>
               </button>
             </div>
           </div>

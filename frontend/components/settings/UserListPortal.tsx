@@ -53,6 +53,7 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
   const [permCanChangeOrgKB, setPermCanChangeOrgKB] = useState(false);
   const [permAllowedRules, setPermAllowedRules] = useState<WorkflowPermissionRule[]>([]);
   const [savingPermissions, setSavingPermissions] = useState(false);
+  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
 
   const loadData = async () => {
     const token = localStorage.getItem('token');
@@ -84,6 +85,7 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
     if (currentRole === 'SINGLE') return;
     setError('');
     setSuccess('');
+    setTogglingUserId(userId);
     const newRole = currentRole === 'ADMIN' ? 'MEMBER' : 'ADMIN';
     const token = localStorage.getItem('token');
 
@@ -104,6 +106,8 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
       loadData();
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setTogglingUserId(null);
     }
   };
 
@@ -301,9 +305,11 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
                         <>
                           <button
                             onClick={() => handleRoleToggle(u.id, u.role)}
-                            className="px-2.5 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.07] text-[#98A4C2] hover:text-white border border-white/5 transition cursor-pointer"
+                            disabled={togglingUserId === u.id}
+                            className="px-2.5 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.07] text-[#98A4C2] hover:text-white border border-white/5 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
                           >
-                            Toggle Role
+                            {togglingUserId === u.id && <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />}
+                            <span>{togglingUserId === u.id ? 'Updating...' : 'Toggle Role'}</span>
                           </button>
                           {u.role === 'MEMBER' && (
                             <button
@@ -569,9 +575,16 @@ export default function UserListPortal({ onBack }: UserListPortalProps) {
                 <button
                   type="submit"
                   disabled={savingPermissions}
-                  className="px-5 py-2.5 bg-gradient-to-r from-violet-700 to-indigo-700 hover:from-violet-600 hover:to-indigo-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition border border-white/10 hover:border-white/20 cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2.5 bg-gradient-to-r from-violet-700 to-indigo-700 hover:from-violet-600 hover:to-indigo-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition border border-white/10 hover:border-white/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  {savingPermissions ? 'Saving...' : 'Save Policies'}
+                  {savingPermissions ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Saving Policies...</span>
+                    </>
+                  ) : (
+                    'Save Policies'
+                  )}
                 </button>
               </div>
             </form>

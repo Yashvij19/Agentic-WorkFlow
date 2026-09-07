@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { User, Shield, KeyRound, Building, Mail, Clock, CheckCircle2, XCircle, Lock, ArrowLeft, ShieldCheck, Key, RefreshCw } from 'lucide-react';
+import { User, Shield, KeyRound, Building, Mail, Clock, CheckCircle2, XCircle, Lock, ArrowLeft, ShieldCheck, Key, RefreshCw, Loader2 } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { useToast } from '@/context/ToastContext';
 import AetherFlowLogo from '@/components/AetherFlowLogo';
@@ -387,9 +387,13 @@ export default function ProfilePage() {
                 <button
                   type="submit"
                   disabled={isResetting}
-                  className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-violet-500/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-violet-500/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  <Key className="w-3.5 h-3.5" />
+                  {isResetting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Key className="w-3.5 h-3.5" />
+                  )}
                   <span>{isResetting ? 'Updating...' : 'Update Password'}</span>
                 </button>
               </div>
@@ -538,9 +542,16 @@ export default function ProfilePage() {
                   <button
                     type="submit"
                     disabled={isDisabling}
-                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition disabled:opacity-50 flex items-center gap-1.5"
+                    className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
-                    {isDisabling ? 'Disabling...' : 'Confirm Disable'}
+                    {isDisabling ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Disabling...</span>
+                      </>
+                    ) : (
+                      'Confirm Disable'
+                    )}
                   </button>
                 </div>
               </form>
@@ -590,9 +601,16 @@ export default function ProfilePage() {
                     <button
                       type="submit"
                       disabled={isRegenerating}
-                      className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl transition disabled:opacity-50"
+                      className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
-                      {isRegenerating ? 'Generating...' : 'Generate 5 New Codes'}
+                      {isRegenerating ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Generating...</span>
+                        </>
+                      ) : (
+                        'Generate 5 New Codes'
+                      )}
                     </button>
                   </div>
                 </form>

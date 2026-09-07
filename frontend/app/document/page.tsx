@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow, Search, CheckCircle2, AlertCircle, Lock, ShieldAlert } from 'lucide-react';
+import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow, Search, CheckCircle2, AlertCircle, Lock, ShieldAlert, Loader2 } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { Loader } from '../../components/Loader';
 import Swal from 'sweetalert2';
@@ -82,6 +82,10 @@ export default function DocumentKnowledgePage() {
   const [targetUploadKbId, setTargetUploadKbId] = useState<string>('');
   const [uploadChunkStrategy, setUploadChunkStrategy] = useState<'recursive' | 'hierarchical'>('hierarchical');
   const [isUploading, setIsUploading] = useState(false);
+
+  // Deletion loading states
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [deletingKbId, setDeletingKbId] = useState<string | null>(null);
 
   // Playground test state
   const [testQuery, setTestQuery] = useState('');
@@ -361,6 +365,7 @@ export default function DocumentKnowledgePage() {
 
     if (!result.isConfirmed) return;
 
+    setDeletingKbId(kbId);
     try {
       const token = getAuthToken();
       const res = await fetch(`${API_URL}/api/rag/knowledge-bases/${kbId}`, {
@@ -380,6 +385,8 @@ export default function DocumentKnowledgePage() {
       fetchDocuments();
     } catch (err: any) {
       handleActionError(err, 'Delete Failed');
+    } finally {
+      setDeletingKbId(null);
     }
   };
 
@@ -487,6 +494,7 @@ export default function DocumentKnowledgePage() {
 
     if (!result.isConfirmed) return;
 
+    setDeletingDocId(id);
     try {
       const token = getAuthToken();
       const res = await fetch(`${API_URL}/api/rag/documents/${id}`, {
@@ -506,6 +514,8 @@ export default function DocumentKnowledgePage() {
       fetchKnowledgeBases();
     } catch (err: any) {
       handleActionError(err, 'Delete Failed');
+    } finally {
+      setDeletingDocId(null);
     }
   };
 
@@ -748,14 +758,22 @@ export default function DocumentKnowledgePage() {
 
                           return canDeleteKb ? (
                             <button
+                              disabled={deletingKbId === kb.id}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteKnowledgeBase(kb.id, kb.name, kb.scope, kb.createdByUserId);
                               }}
-                              className="text-slate-400 hover:text-red-400 p-1 transition cursor-pointer flex items-center gap-1 text-[10px]"
+                              className="text-slate-400 hover:text-red-400 p-1 transition cursor-pointer flex items-center gap-1 text-[10px] disabled:opacity-50 disabled:cursor-not-allowed"
                               title="Delete Knowledge Base"
                             >
-                              Delete
+                              {deletingKbId === kb.id ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 animate-spin text-red-400" />
+                                  <span>Deleting...</span>
+                                </>
+                              ) : (
+                                'Delete'
+                              )}
                             </button>
                           ) : (
                             <button
@@ -892,7 +910,10 @@ export default function DocumentKnowledgePage() {
                     className="w-full sm:w-auto mt-4 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-600/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isUploading ? (
-                      'Ingesting Document...'
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Ingesting Document...</span>
+                      </>
                     ) : (
                       <>
                         <span>Upload and Ingest</span>
@@ -963,10 +984,17 @@ export default function DocumentKnowledgePage() {
 
                   <button
                     onClick={() => fetchDocuments()}
-                    disabled={!selectedKbFilter}
-                    className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                    disabled={!selectedKbFilter || isLoading}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                   >
-                    Refresh ⟳
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin text-purple-400" />
+                        <span>Refreshing...</span>
+                      </>
+                    ) : (
+                      <span>Refresh ⟳</span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -1035,12 +1063,17 @@ export default function DocumentKnowledgePage() {
                           {canDeleteDoc ? (
                             <button
                               onClick={() => handleDeleteDocument(doc.id, doc.name, kb?.scope)}
-                              className="p-1.5 hover:bg-red-950/30 text-slate-400 hover:text-red-400 rounded-lg transition cursor-pointer"
-                              title="Delete Document"
+                              disabled={deletingDocId === doc.id}
+                              className="p-1.5 hover:bg-red-950/30 text-slate-400 hover:text-red-400 rounded-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={deletingDocId === doc.id ? "Deleting..." : "Delete Document"}
                             >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                              </svg>
+                              {deletingDocId === doc.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                </svg>
+                              )}
                             </button>
                           ) : (
                             <button
@@ -1208,7 +1241,10 @@ export default function DocumentKnowledgePage() {
                   className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/20 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   {isTesting ? (
-                    isGenerationEnabled ? 'Searching, Reranking & Generating Answer...' : 'Searching & Ranking Chunks...'
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>{isGenerationEnabled ? 'Searching, Reranking & Generating Answer...' : 'Searching & Ranking Chunks...'}</span>
+                    </>
                   ) : (
                     <>
                       <span>{isGenerationEnabled ? 'Test Retrieval & Answer' : 'Test Document Retrieval'}</span>
@@ -1390,9 +1426,16 @@ export default function DocumentKnowledgePage() {
                 <button
                   type="submit"
                   disabled={isCreatingKb || !newKbName.trim()}
-                  className="px-5 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
-                  {isCreatingKb ? 'Creating...' : 'Create'}
+                  {isCreatingKb ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    'Create'
+                  )}
                 </button>
               </div>
             </form>

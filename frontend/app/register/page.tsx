@@ -401,9 +401,16 @@ export default function RegisterPage() {
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full py-3 mt-4 bg-gradient-to-r from-violet-700 via-purple-600 to-indigo-700 hover:from-violet-600 hover:via-purple-500 hover:to-indigo-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition duration-300 border border-white/10 hover:border-white/20 shadow-md cursor-pointer"
+                      className="w-full py-3 mt-4 bg-gradient-to-r from-violet-700 via-purple-600 to-indigo-700 hover:from-violet-600 hover:via-purple-500 hover:to-indigo-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition duration-300 border border-white/10 hover:border-white/20 shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                      {loading ? 'Registering Account...' : 'Create Account'}
+                      {loading ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>Registering Account...</span>
+                        </>
+                      ) : (
+                        'Create Account'
+                      )}
                     </button>
                   </form>
                 )}
@@ -542,12 +549,16 @@ export default function RegisterPage() {
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full py-3 mt-4 bg-gradient-to-r from-indigo-700 via-purple-600 to-violet-700 hover:from-indigo-600 hover:via-purple-500 hover:to-violet-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition duration-300 border border-white/10 hover:border-white/20 shadow-md cursor-pointer"
+                      className="w-full py-3 mt-4 bg-gradient-to-r from-indigo-700 via-purple-600 to-violet-700 hover:from-indigo-600 hover:via-purple-500 hover:to-violet-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition duration-300 border border-white/10 hover:border-white/20 shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                      {loading 
-                        ? (orgRole === 'ADMIN' ? 'Initializing Team Space...' : 'Verifying Request...') 
-                        : (orgRole === 'ADMIN' ? 'Register Team Workspace' : 'Submit Join Request')
-                      }
+                      {loading ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>{orgRole === 'ADMIN' ? 'Initializing Team Space...' : 'Verifying Request...'}</span>
+                        </>
+                      ) : (
+                        orgRole === 'ADMIN' ? 'Register Team Workspace' : 'Submit Join Request'
+                      )}
                     </button>
                   </form>
                 )}

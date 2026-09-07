@@ -232,9 +232,16 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 mt-2 bg-gradient-to-r from-violet-700 via-purple-600 to-indigo-700 hover:from-violet-600 hover:via-purple-500 hover:to-indigo-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition-all duration-300 border border-white/10 hover:border-white/20 shadow-[0_4px_20px_rgba(139,92,246,0.15)] hover:shadow-[0_4px_24px_rgba(139,92,246,0.25)] hover:-translate-y-[1px] disabled:opacity-50 cursor-pointer"
+                className="w-full py-3 mt-2 bg-gradient-to-r from-violet-700 via-purple-600 to-indigo-700 hover:from-violet-600 hover:via-purple-500 hover:to-indigo-600 text-white font-bold text-xs tracking-wider uppercase rounded-xl transition-all duration-300 border border-white/10 hover:border-white/20 shadow-[0_4px_20px_rgba(139,92,246,0.15)] hover:shadow-[0_4px_24px_rgba(139,92,246,0.25)] hover:-translate-y-[1px] disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
               >
-                {loading ? 'Authenticating...' : 'Sign In'}
+                {loading ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Authenticating...</span>
+                  </>
+                ) : (
+                  'Sign In'
+                )}
               </button>
             </form>
 

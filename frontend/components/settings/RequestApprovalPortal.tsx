@@ -21,6 +21,7 @@ export default function RequestApprovalPortal({ onBack }: RequestApprovalPortalP
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(true);
   const [actioningId, setActioningId] = useState<string | null>(null);
+  const [actioningType, setActioningType] = useState<'approve' | 'reject' | null>(null);
 
   const loadRequests = async () => {
     const token = localStorage.getItem('token');
@@ -47,6 +48,7 @@ export default function RequestApprovalPortal({ onBack }: RequestApprovalPortalP
     setError('');
     setSuccess('');
     setActioningId(id);
+    setActioningType('approve');
     const token = localStorage.getItem('token');
 
     try {
@@ -64,6 +66,7 @@ export default function RequestApprovalPortal({ onBack }: RequestApprovalPortalP
       setError(err.message);
     } finally {
       setActioningId(null);
+      setActioningType(null);
     }
   };
 
@@ -71,6 +74,7 @@ export default function RequestApprovalPortal({ onBack }: RequestApprovalPortalP
     setError('');
     setSuccess('');
     setActioningId(id);
+    setActioningType('reject');
     const token = localStorage.getItem('token');
 
     try {
@@ -82,12 +86,13 @@ export default function RequestApprovalPortal({ onBack }: RequestApprovalPortalP
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reject request.');
 
-      setSuccess("Registration request rejected and discarded.");
+      setSuccess("Request rejected and removed from pending queue.");
       loadRequests();
     } catch (err: any) {
       setError(err.message);
     } finally {
       setActioningId(null);
+      setActioningType(null);
     }
   };
 
@@ -166,16 +171,30 @@ export default function RequestApprovalPortal({ onBack }: RequestApprovalPortalP
                       <button
                         onClick={() => handleApprove(req.id)}
                         disabled={isActioning}
-                        className="px-4 py-2 bg-gradient-to-r from-violet-700 to-indigo-700 hover:from-violet-600 hover:to-indigo-600 text-white text-[10px] font-bold tracking-wider uppercase rounded-xl border border-white/10 hover:border-white/20 transition cursor-pointer disabled:opacity-50"
+                        className="px-4 py-2 bg-gradient-to-r from-violet-700 to-indigo-700 hover:from-violet-600 hover:to-indigo-600 text-white text-[10px] font-bold tracking-wider uppercase rounded-xl border border-white/10 hover:border-white/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                       >
-                        {isActioning ? '...' : 'Approve'}
+                        {isActioning && actioningType === 'approve' ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Approving...</span>
+                          </>
+                        ) : (
+                          'Approve'
+                        )}
                       </button>
                       <button
                         onClick={() => handleReject(req.id)}
                         disabled={isActioning}
-                        className="px-4 py-2 bg-white/[0.03] hover:bg-white/[0.08] text-red-400 hover:text-red-300 text-[10px] font-bold tracking-wider uppercase rounded-xl border border-white/5 hover:border-white/10 transition cursor-pointer disabled:opacity-50"
+                        className="px-4 py-2 bg-white/[0.03] hover:bg-white/[0.08] text-red-400 hover:text-red-300 text-[10px] font-bold tracking-wider uppercase rounded-xl border border-white/5 hover:border-white/10 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                       >
-                        {isActioning ? '...' : 'Reject'}
+                        {isActioning && actioningType === 'reject' ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-red-400/30 border-t-red-400 rounded-full animate-spin" />
+                            <span>Rejecting...</span>
+                          </>
+                        ) : (
+                          'Reject'
+                        )}
                       </button>
                     </div>
                   </div>
