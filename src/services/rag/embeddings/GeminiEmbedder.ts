@@ -19,6 +19,26 @@ export class GeminiEmbedder {
   }
 
   /**
+   * Determines active query embedding provider:
+   * - In production (NODE_ENV === 'production'): Always 'gemini' to protect the 512MB RAM limit.
+   * - In local development: Respects QUERY_EMBEDDING='local' | 'production' | 'gemini'
+   *   (falls back to EMBEDDING_PROVIDER, defaults to 'gemini').
+   */
+  static getQueryProvider(): 'gemini' | 'local' {
+    if (process.env.NODE_ENV === 'production') {
+      return 'gemini';
+    }
+    const queryConfig = (process.env.QUERY_EMBEDDING || '').toLowerCase().trim();
+    if (queryConfig === 'production' || queryConfig === 'gemini') {
+      return 'gemini';
+    }
+    if (queryConfig === 'local') {
+      return 'local';
+    }
+    return this.getProvider();
+  }
+
+  /**
    * Retrieves decrypted Gemini API key strictly from the organization's saved credentials in DB.
    * Multi-tenant isolation: Never falls back to server-level process.env.
    */
@@ -68,7 +88,35 @@ export class GeminiEmbedder {
       }
     }
 
-    // 2. Google Gemini Cloud Embeddings (for 512MB Render production & fast cloud dev)
+    // 2. Google Gemini Cloud Embeddings
+    return await this.getGeminiCloudEmbeddings(sanitizedTexts, orgId);
+  }
+
+  /**
+   * Single text query embedding for vector similarity search.
+   * Controlled independently by QUERY_EMBEDDING='local' | 'production' | 'gemini'.
+   */
+  static async getQueryEmbedding(query: string, orgId?: string): Promise<number[]> {
+    const cleanQuery = this.sanitizeText(query);
+    const provider = this.getQueryProvider();
+
+    if (provider === 'local') {
+      try {
+        const res = await this.getLocalEmbeddings([cleanQuery]);
+        if (res && res.length > 0) return res[0];
+      } catch (err: any) {
+        console.warn(`⚠️ [Embedder] Local query embedding failed, falling back to Gemini.`);
+      }
+    }
+
+    const cloudRes = await this.getGeminiCloudEmbeddings([cleanQuery], orgId);
+    return cloudRes[0] || this.fallbackVector(cleanQuery);
+  }
+
+  /**
+   * Encapsulates Google Gemini Cloud API embeddings with batching and fallback
+   */
+  private static async getGeminiCloudEmbeddings(sanitizedTexts: string[], orgId?: string): Promise<number[][]> {
     const apiKey = await this.getApiKey(orgId);
 
     if (apiKey) {
@@ -80,10 +128,19 @@ export class GeminiEmbedder {
         // Batch in slices of 50 to respect Gemini API batch size
         for (let i = 0; i < sanitizedTexts.length; i += 50) {
           const slice = sanitizedTexts.slice(i, i + 50);
-          const response = await ai.models.embedContent({
-            model: 'text-embedding-004',
-            contents: slice,
-          });
+          let response: any;
+          try {
+            response = await ai.models.embedContent({
+              model: 'gemini-embedding-001',
+              contents: slice,
+              config: { outputDimensionality: 768 },
+            });
+          } catch {
+            response = await ai.models.embedContent({
+              model: 'text-embedding-004',
+              contents: slice,
+            });
+          }
 
           if (response.embeddings) {
             for (let j = 0; j < response.embeddings.length; j++) {
@@ -101,28 +158,8 @@ export class GeminiEmbedder {
       }
     }
 
-    // 3. Fallback normalized vector
+    // Fallback normalized vector
     return sanitizedTexts.map((t) => this.fallbackVector(t));
-  }
-
-  /**
-   * Single text query embedding for vector similarity search
-   */
-  static async getQueryEmbedding(query: string, orgId?: string): Promise<number[]> {
-    const cleanQuery = this.sanitizeText(query);
-    const provider = this.getProvider();
-
-    if (provider === 'local') {
-      try {
-        const res = await this.getLocalEmbeddings([cleanQuery]);
-        if (res && res.length > 0) return res[0];
-      } catch (err: any) {
-        console.warn(`⚠️ [Embedder] Local query embedding failed, falling back to Gemini.`);
-      }
-    }
-
-    const res = await this.getEmbeddings([cleanQuery], orgId);
-    return res[0] || this.fallbackVector(cleanQuery);
   }
 
   /**

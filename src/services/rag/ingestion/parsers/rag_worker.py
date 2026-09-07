@@ -10,29 +10,11 @@ try:
 except ImportError:
     HAS_MARKITDOWN = False
 
-try:
-    from sentence_transformers import SentenceTransformer
-    HAS_SENTENCE_TRANSFORMERS = True
-except ImportError:
-    HAS_SENTENCE_TRANSFORMERS = False
-
 def clean_text(text: str) -> str:
     """Sanitizes text by stripping lone Unicode surrogates and invalid characters."""
     if not isinstance(text, str):
         text = str(text)
     return text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
-
-def generate_fallback_vector(text, dims=1024):
-    """Generates a unit-normalized 1024-dimension float vector from text hash when PyTorch is unavailable."""
-    vec = [0.0] * dims
-    clean = clean_text(text)
-    for word in clean.lower().split():
-        h = int(hashlib.md5(word.encode('utf-8', errors='ignore')).hexdigest(), 16)
-        idx = h % dims
-        sign = 1.0 if (h & 1) else -1.0
-        vec[idx] += sign
-    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
-    return [x / norm for x in vec]
 
 
 
@@ -138,24 +120,11 @@ def main():
         chunk_texts = recursive_chunk_text(normalized_content, chunk_size, chunk_overlap)
         chunk_texts = [clean_text(t) for t in chunk_texts]
 
-        # 3. Generate dense embeddings using local BAAI/bge-m3 model if available, else fallback
-        embeddings = []
-        if HAS_SENTENCE_TRANSFORMERS:
-            try:
-                model = SentenceTransformer('BAAI/bge-m3')
-                encoded = model.encode(chunk_texts, batch_size=32, show_progress_bar=False)
-                embeddings = [e.tolist() for e in encoded]
-            except Exception:
-                embeddings = [generate_fallback_vector(t) for t in chunk_texts]
-        else:
-            embeddings = [generate_fallback_vector(t) for t in chunk_texts]
-
-        # 4. Assemble chunks with float vectors
+        # 3. Assemble chunks (Embeddings are handled downstream by GeminiEmbedder)
         processed_chunks = []
         for i, text in enumerate(chunk_texts):
             processed_chunks.append({
                 'content': text,
-                'embedding': embeddings[i],
                 'metadata': {
                     'index': str(i),
                     'filename': title

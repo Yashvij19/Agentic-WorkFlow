@@ -68,25 +68,25 @@ server.addHook('onRequest', async (request, reply) => {
     }
 });
 
-declare module '@fastify/jwt'{
-    interface FastifyJWT{
-        payload:{
-            id:string , 
-            organizationId:string,
-            email:string,
-            role:string
+declare module '@fastify/jwt' {
+    interface FastifyJWT {
+        payload: {
+            id: string,
+            organizationId: string,
+            email: string,
+            role: string
         };
-        user:{
-            id:string,
-            organizationId:string,
-            email:string,
-            role:string
+        user: {
+            id: string,
+            organizationId: string,
+            email: string,
+            role: string
 
         };
     }
 }
 
-declare module 'fastify'{
+declare module 'fastify' {
     interface FastifyInstance {
         authenticate(request: any, reply: any): Promise<void>;
     }
@@ -95,10 +95,10 @@ declare module 'fastify'{
 // Register plugins
 
 server.register(fastifyJwt, {
-  secret: jwtSecret,
-  sign: {
-    expiresIn: process.env.JWT_EXPIRES_IN || '4h'
-  }
+    secret: jwtSecret,
+    sign: {
+        expiresIn: process.env.JWT_EXPIRES_IN || '4h'
+    }
 });
 
 server.register(webSocket);
@@ -128,17 +128,17 @@ server.register(fastifyRateLimit, {
 
 
 // A simple health check route to verify the server is breathing (exempt from rate limits)
-server.get('/health', { config: { rateLimit: false } }, async(request , reply)=>{
+server.get('/health', { config: { rateLimit: false } }, async (request, reply) => {
     return {
-        status:'ok',
-        message:"API Gateway is online"
+        status: 'ok',
+        message: "API Gateway is online"
     };
 })
 
 
 // Create a reusable authentication middleware hook
-server.decorate('authenticate' , async function (request:any, reply:any){
-    try{
+server.decorate('authenticate', async function (request: any, reply: any) {
+    try {
         await request.jwtVerify();
         if (!request.user || !request.user.id) {
             return reply.code(401).send({
@@ -158,7 +158,7 @@ server.decorate('authenticate' , async function (request:any, reply:any){
         // Synchronize fresh DB role in case user was demoted or promoted
         request.user.role = dbUser.role;
         request.user.organizationId = dbUser.organizationId;
-    }catch(err){
+    } catch (err) {
         return reply.code(401).send({
             error: 'Unauthorized: Invalid or expired credentials'
         });
@@ -248,7 +248,7 @@ const start = async () => {
         const host = process.env.HOST || '::';
         try {
             await server.listen({
-                port: PORT, 
+                port: PORT,
                 host: host
             });
         } catch (bindErr) {

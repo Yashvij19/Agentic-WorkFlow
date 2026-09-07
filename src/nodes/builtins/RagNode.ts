@@ -9,6 +9,9 @@ export interface RagNodeConfig {
   knowledgeBaseScope?: 'ORGANIZATION' | 'PERSONAL';
   knowledgeSourceId?: string;
   useCaseProfile?: UseCaseProfile;
+  queryAnalysis?: {
+    strategy?: 'rule' | 'llm';
+  };
   ingestion?: any;
   retrieval?: any;
   reranker?: any;
@@ -45,6 +48,9 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
     const ragConfig: RAGConfiguration = {
       mode: config?.mode || 'simple',
       useCaseProfile: config?.useCaseProfile || 'GENERAL_QA',
+      queryAnalysis: config?.queryAnalysis || {
+        strategy: 'rule',
+      },
       ingestion: config?.ingestion || {
         parser: 'auto',
         chunkSize: 800,
@@ -59,7 +65,7 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
         minScore: 0.3,
       },
       reranker: config?.reranker || {
-        provider: 'none',
+        provider: 'simple_lexical',
         topN: 5,
       },
       context: config?.context || {

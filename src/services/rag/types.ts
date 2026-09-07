@@ -10,9 +10,16 @@ export type RetrievalMode = 'vector' | 'keyword' | 'hybrid' | 'adaptive';
 export type CitationMode = 'none' | 'inline' | 'source_list';
 export type RerankerProvider = 'none' | 'local_cross_encoder' | 'simple_lexical' | 'cohere';
 
+export type QueryAnalysisStrategy = 'rule' | 'llm';
+
+export interface QueryAnalysisConfig {
+  strategy?: QueryAnalysisStrategy;
+}
+
 export interface RAGConfiguration {
   mode: RAGMode;
   useCaseProfile: UseCaseProfile;
+  queryAnalysis?: QueryAnalysisConfig;
   ingestion: {
     parser: ParserType;
     chunkSize: number;

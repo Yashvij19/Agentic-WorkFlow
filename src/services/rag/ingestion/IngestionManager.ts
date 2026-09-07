@@ -62,6 +62,16 @@ export class IngestionManager {
       });
       childEmbeddings =
         allChildTexts.length > 0 ? await this.generateEmbeddingsBatch(allChildTexts, orgId) : [];
+    } else {
+      // If flat chunks from the parser don't have embeddings, batch-generate them via GeminiEmbedder
+      const missingEmbeddings = parsedDoc.chunks.some((c) => !c.embedding);
+      if (missingEmbeddings && parsedDoc.chunks.length > 0) {
+        const chunkTexts = parsedDoc.chunks.map((c) => c.content);
+        const embeddings = await this.generateEmbeddingsBatch(chunkTexts, orgId);
+        parsedDoc.chunks.forEach((c, idx) => {
+          c.embedding = embeddings[idx];
+        });
+      }
     }
 
     // 4. Perform Database Transaction purely for fast SQL writes

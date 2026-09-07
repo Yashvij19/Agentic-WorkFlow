@@ -630,6 +630,34 @@ export default function PropertiesPanel({
             {/* Advanced Settings Drawer */}
             {data.mode === 'advanced' && (
               <div className="space-y-3.5 p-3 bg-black/30 rounded-xl border border-white/5">
+                {/* 0. Query Analysis Strategy */}
+                <div>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                    Query Analysis Strategy
+                  </label>
+                  <select
+                    value={data.queryAnalysis?.strategy || 'rule'}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        queryAnalysis: {
+                          ...(data.queryAnalysis || {}),
+                          strategy: e.target.value as any,
+                        },
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white focus:outline-none"
+                  >
+                    <option value="rule">Fast Rule-Based / Regex (~1ms)</option>
+                    <option value="llm">LLM Classification (Gemini ~1.5s)</option>
+                  </select>
+                  <p className="text-[8px] text-[#687493] mt-1 pl-1">
+                    {data.queryAnalysis?.strategy === 'llm'
+                      ? 'Categorizes query intent using Gemini LLM upfront.'
+                      : 'Instant heuristic and keyword extraction with zero API roundtrip.'}
+                  </p>
+                </div>
+
                 {/* 1. Retrieval Mode */}
                 <div>
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">Retrieval Mode</label>
@@ -672,10 +700,10 @@ export default function PropertiesPanel({
                 {/* 3. Phase 2: Reranker Strategy Selector */}
                 <div className="pt-2 border-t border-white/[0.05]">
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
-                    Cross-Encoder Reranker
+                    Reranker Strategy
                   </label>
                   <select
-                    value={data.reranker?.provider || 'none'}
+                    value={data.reranker?.provider || 'simple_lexical'}
                     onChange={(e) =>
                       onUpdateNodeData(id, {
                         ...data,
@@ -687,9 +715,9 @@ export default function PropertiesPanel({
                     }
                     className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white"
                   >
-                    <option value="none">Disabled (Use RRF Scores)</option>
+                    <option value="simple_lexical">Simple Lexical (Fast Exact Match - Default)</option>
                     <option value="local_cross_encoder">Local Cross-Encoder (Neural Attention)</option>
-                    <option value="simple_lexical">Simple Lexical (Fast Exact Match)</option>
+                    <option value="none">Disabled (Use RRF Scores)</option>
                   </select>
                 </div>
 

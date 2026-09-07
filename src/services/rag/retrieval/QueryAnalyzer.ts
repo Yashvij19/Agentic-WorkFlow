@@ -6,29 +6,35 @@ import { prisma } from '../../../utils/db';
 
 export class QueryAnalyzer{
 
-     /**
-   * Analyzes the query. Uses LLM-based analysis if a Gemini key is present,
-   * otherwise falls back to fast rule-based analysis.
+   /**
+   * Analyzes the query. Uses fast rule-based regex analysis by default (~1ms),
+   * or LLM-based analysis if explicitly requested in queryAnalysis config.
    */
+  async analyze(
+    orgId: string,
+    query: string,
+    metadataFilters?: Record<string, string>,
+    options?: { strategy?: 'rule' | 'llm' }
+  ): Promise<QueryAnalysis> {
+    const normalized = query.trim().toLowerCase();
+    const keywords = this.extractKeywords(normalized);
+    const strategy = options?.strategy || 'rule';
 
-  async analyze (orgId:string,query:string  , metadataFilters?:Record<string ,string>):Promise<QueryAnalysis>{
+    // Run intelligent LLM-based classification only if explicitly configured
+    if (strategy === 'llm') {
+      const credential = await prisma.credential.findFirst({
+        where: {
+          organizationId: orgId,
+          name: 'GEMINI_API_KEY',
+        },
+      });
 
-    const normalized=query.trim().toLowerCase();
-    const keywords=this.extractKeywords(normalized);
-    // Check if organization has a Gemini API key configured
-    const credential = await prisma.credential.findFirst({
-      where: {
-        organizationId: orgId,
-        name: 'GEMINI_API_KEY',
-      },
-    });
-
-    if (credential && credential.encryptedData) {
-      try {
-        // Run intelligent LLM-based classification
-        return await this.analyzeWithLLM(query, keywords, credential.encryptedData, metadataFilters);
-      } catch (err) {
-        console.warn('LLM Query Analysis failed, falling back to rule-based analysis:', err);
+      if (credential && credential.encryptedData) {
+        try {
+          return await this.analyzeWithLLM(query, keywords, credential.encryptedData, metadataFilters);
+        } catch (err) {
+          console.warn('LLM Query Analysis failed, falling back to rule-based analysis:', err);
+        }
       }
     }
 

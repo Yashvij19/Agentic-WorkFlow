@@ -86,7 +86,8 @@ export default function DocumentKnowledgePage() {
   // Playground test state
   const [testQuery, setTestQuery] = useState('');
   const [testTargetKbId, setTestTargetKbId] = useState<string>('');
-  const [rerankerChoice, setRerankerChoice] = useState<'none' | 'local_cross_encoder' | 'simple_lexical'>('local_cross_encoder');
+  const [queryAnalysisChoice, setQueryAnalysisChoice] = useState<'rule' | 'llm'>('rule');
+  const [rerankerChoice, setRerankerChoice] = useState<'none' | 'local_cross_encoder' | 'simple_lexical'>('simple_lexical');
   const [contextStrategyChoice, setContextStrategyChoice] = useState<'top_chunks' | 'parent_child' | 'neighbors'>('parent_child');
   const [isGenerationEnabled, setIsGenerationEnabled] = useState<boolean>(true);
   const [isTesting, setIsTesting] = useState(false);
@@ -529,6 +530,9 @@ export default function DocumentKnowledgePage() {
           query: testQuery,
           metadataFilters: testTargetKbId ? { knowledgeSourceId: testTargetKbId } : undefined,
           config: {
+            queryAnalysis: {
+              strategy: queryAnalysisChoice,
+            },
             retrieval: {
               mode: 'hybrid',
               topK: 10,
@@ -1108,8 +1112,22 @@ export default function DocumentKnowledgePage() {
                   />
                 </div>
 
-                {/* Reranker & Context Expansion Grid */}
-                <div className="grid grid-cols-2 gap-2">
+                {/* Query Controls Grid: Analysis, Reranker, Context */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
+                      Query Analysis
+                    </label>
+                    <select
+                      value={queryAnalysisChoice}
+                      onChange={(e) => setQueryAnalysisChoice(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
+                    >
+                      <option value="rule">Rule-Based (~1ms)</option>
+                      <option value="llm">LLM Gemini (~1.5s)</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
                       Reranker
@@ -1119,9 +1137,9 @@ export default function DocumentKnowledgePage() {
                       onChange={(e) => setRerankerChoice(e.target.value as any)}
                       className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
                     >
+                      <option value="simple_lexical">Simple Lexical (Fast)</option>
                       <option value="local_cross_encoder">Cross-Encoder (Neural)</option>
-                      <option value="simple_lexical">Simple Lexical</option>
-                      <option value="none">None (RRF)</option>
+                      <option value="none">None (RRF Only)</option>
                     </select>
                   </div>
 
@@ -1134,9 +1152,9 @@ export default function DocumentKnowledgePage() {
                       onChange={(e) => setContextStrategyChoice(e.target.value as any)}
                       className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
                     >
-                      <option value="parent_child">Parent-Child (Full Context)</option>
-                      <option value="neighbors">Neighbor Window (Stitched)</option>
-                      <option value="top_chunks">Top Chunks (Default)</option>
+                      <option value="parent_child">Parent-Child</option>
+                      <option value="neighbors">Neighbor Window</option>
+                      <option value="top_chunks">Top Chunks</option>
                     </select>
                   </div>
                 </div>

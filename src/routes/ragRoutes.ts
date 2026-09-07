@@ -364,6 +364,9 @@ export async function ragRoutes(server: FastifyInstance) {
             const activeConfig: RAGConfiguration = {
                 mode: config?.mode || 'simple',
                 useCaseProfile: config?.useCaseProfile || 'GENERAL_QA',
+                queryAnalysis: {
+                    strategy: config?.queryAnalysis?.strategy || 'rule',
+                },
                 ingestion: {
                     parser: config?.ingestion?.parser || 'auto',
                     chunkSize: config?.ingestion?.chunkSize || 800,
@@ -378,7 +381,7 @@ export async function ragRoutes(server: FastifyInstance) {
                     minScore: config?.retrieval?.minScore ?? 0.3,
                 },
                 reranker: {
-                    provider: config?.reranker?.provider || 'none',
+                    provider: config?.reranker?.provider || 'simple_lexical',
                     topN: config?.reranker?.topN || 5,
                     minScore: config?.reranker?.minScore,
                 },

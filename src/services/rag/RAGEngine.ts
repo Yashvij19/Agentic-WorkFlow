@@ -74,7 +74,7 @@ export class RAGEngine {
 
     // 1. Query Analysis
     const t0 = Date.now();
-    const analysis = await this.queryAnalyzer.analyze(orgId, query, metadataFilters);
+    const analysis = await this.queryAnalyzer.analyze(orgId, query, metadataFilters, config.queryAnalysis);
     const analysisMs = Date.now() - t0;
 
     // 2. Retrieval Planning
