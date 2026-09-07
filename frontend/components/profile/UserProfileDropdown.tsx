@@ -35,8 +35,9 @@ export default function UserProfileDropdown() {
         const data = await res.json();
         setProfile(data);
       }
-    } catch (err) {
-      console.error('Failed to load profile:', err);
+    } catch (err: any) {
+      // Graceful fallback to cached localStorage user profile while backend is booting or reconnecting
+      console.warn('⚠️ [UserProfile] Could not refresh profile from backend:', err?.message || err);
     }
   };
 
