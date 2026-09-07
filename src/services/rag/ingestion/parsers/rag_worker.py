@@ -11,9 +11,11 @@ except ImportError:
     HAS_MARKITDOWN = False
 
 def clean_text(text: str) -> str:
-    """Sanitizes text by stripping lone Unicode surrogates and invalid characters."""
+    """Sanitizes text by stripping null bytes (0x00) and lone Unicode surrogates."""
     if not isinstance(text, str):
         text = str(text)
+    # Strip null characters (0x00) which violate PostgreSQL UTF-8 text encoding rules
+    text = text.replace('\x00', '').replace('\0', '')
     return text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
 
 
@@ -101,24 +103,32 @@ def main():
     
     try:
         normalized_content = ""
-        # 1. Parse file structure using MarkItDown if available, else read directly
+        is_binary = any(file_path.lower().endswith(ext) for ext in ['.pdf', '.docx', '.xlsx', '.xls', '.pptx', '.ppt', '.zip'])
+        
+        # 1. Parse file structure using MarkItDown if available, else read directly for text formats
         if HAS_MARKITDOWN:
             try:
                 md_parser = MarkItDown()
                 result = md_parser.convert(file_path)
-                normalized_content = result.text_content
+                normalized_content = result.text_content or ""
             except Exception as pe:
+                if is_binary:
+                    raise Exception(f"MarkItDown failed to parse binary file '{os.path.basename(file_path)}': {pe}")
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     normalized_content = f.read()
         else:
+            if is_binary:
+                raise Exception("markitdown Python package is required to parse binary files (.pdf, .docx, etc.).")
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 normalized_content = f.read()
 
-        title = os.path.basename(file_path)
+        # Sanitize entire document content to strip null bytes (0x00) & surrogates
+        normalized_content = clean_text(normalized_content)
+        title = clean_text(os.path.basename(file_path))
 
         # 2. Chunk text recursively
         chunk_texts = recursive_chunk_text(normalized_content, chunk_size, chunk_overlap)
-        chunk_texts = [clean_text(t) for t in chunk_texts]
+        chunk_texts = [clean_text(t) for t in chunk_texts if t.strip()]
 
         # 3. Assemble chunks (Embeddings are handled downstream by GeminiEmbedder)
         processed_chunks = []
@@ -131,11 +141,11 @@ def main():
                 }
             })
         
-        output={
-            'title':title,
-            'rawContent':normalized_content,
-            "normalized_content":normalized_content,
-            'chunks':processed_chunks
+        output = {
+            'title': title,
+            'rawContent': normalized_content,
+            'normalizedContent': normalized_content,
+            'chunks': processed_chunks
         }
         print(json.dumps(output))
         sys.exit(0)
