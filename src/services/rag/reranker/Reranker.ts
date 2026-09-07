@@ -53,6 +53,7 @@ export class LocalCrossEncoderReranker implements IReranker {
                         initialRank: item.index + 1,
                         score: item.score,
                     }));
+                    return resolve(scored.sort((a, b) => b.score - a.score).slice(0, options.topN));
                 } catch (err: any) {
                     console.warn(`⚠️ [Reranker] Failed to parse CrossEncoder output (${err.message}). Falling back to SimpleLexicalReranker.`);
                     return resolve(new SimpleLexicalReranker().rerank(query, candidates, options));

@@ -1,6 +1,5 @@
 import * as path from 'path';
 import { DocumentParser, IngestionInput, NormalizedDocument, ParsedChunk } from '../types';
-import { GeminiEmbedder } from '../embeddings/GeminiEmbedder';
 
 
 
@@ -45,21 +44,14 @@ export class NativeParser implements DocumentParser {
             .replace(/[\uD800-\uDFFF]/g, '');
 
         // 1. Segment text into recursive chunks in Node.js
-        const chunkTexts=this.recursiveChunkText(rawContent ,options.chunkSize , options.chunkOverlap );
-        let embeddings:number[][]=[];
+        const chunkTexts = this.recursiveChunkText(rawContent, options.chunkSize, options.chunkOverlap);
 
-        // 2. Call python embed_worker.py to generate BAAI/bge-m3 embeddings in one batch
-        if(chunkTexts.length>0){
-            embeddings=await this.getEmbeddings(chunkTexts);
-        }
-
-        // 3. Assemble chunks
-        const chunks:ParsedChunk[]=chunkTexts.map((text, idx)=>({
-            content:text,
-            embedding:embeddings[idx],
-            metadata:{
-                index:idx.toString(),
-                filename:input.name,
+        // 2. Assemble chunks (embeddings will be generated in batch by IngestionManager with proper orgId authentication)
+        const chunks: ParsedChunk[] = chunkTexts.map((text, idx) => ({
+            content: text,
+            metadata: {
+                index: idx.toString(),
+                filename: input.name,
             },
         }));
 
@@ -128,9 +120,6 @@ export class NativeParser implements DocumentParser {
                     }
                     return finalChunks;
             };
-            return splitRecursive(text , separators)
-        }
-        private async getEmbeddings(texts: string[]): Promise<number[][]> {
-            return await GeminiEmbedder.getEmbeddings(texts);
+            return splitRecursive(text, separators);
         }
     }
