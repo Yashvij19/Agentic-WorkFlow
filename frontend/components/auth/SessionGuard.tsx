@@ -56,19 +56,24 @@ export default function SessionGuard() {
     // 2. Global fetch interceptor to catch 401s on ANY page
     const originalFetch = window.fetch;
     window.fetch = async (...args) => {
-      const response = await originalFetch(...args);
+      try {
+        const response = await originalFetch(...args);
 
-      if (response.status === 401) {
-        const rawUrl = typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url || '';
-        // Skip auth endpoints where 401 simply means bad username/password during sign-in
-        const isAuthEndpoint = rawUrl.includes('/api/auth/login') || rawUrl.includes('/api/auth/register');
+        if (response.status === 401) {
+          const rawUrl = typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url || '';
+          // Skip auth endpoints where 401 simply means bad username/password during sign-in
+          const isAuthEndpoint = rawUrl.includes('/api/auth/login') || rawUrl.includes('/api/auth/register');
 
-        if (!isAuthEndpoint) {
-          triggerSessionExpiredModal();
+          if (!isAuthEndpoint) {
+            triggerSessionExpiredModal();
+          }
         }
-      }
 
-      return response;
+        return response;
+      } catch (networkError) {
+        // Transparently re-throw network errors so callers' catch blocks can handle them
+        throw networkError;
+      }
     };
 
     return () => {

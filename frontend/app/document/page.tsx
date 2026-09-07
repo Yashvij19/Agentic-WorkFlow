@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow, Search, CheckCircle2, AlertCircle, Lock, ShieldAlert, Loader2 } from 'lucide-react';
+import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow, Search, CheckCircle2, AlertCircle, Lock, ShieldAlert, Loader2, User, Building2, ChevronDown } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { Loader } from '../../components/Loader';
 import Swal from 'sweetalert2';
@@ -55,6 +55,121 @@ interface TestQueryResult {
       isNeighborStitched?: boolean;
     }>;
   };
+}
+
+/**
+ * Custom Knowledge Base selector displaying dedicated SVG icons (Person vs Organization)
+ * instead of raw text brackets like [Personal] or [ORGANIZATION].
+ */
+function KnowledgeBaseDropdown({
+  value,
+  onChange,
+  knowledgeBases,
+  disabled = false,
+  placeholder = '-- Select a Knowledge Base --',
+  allowAll = false,
+  className = '',
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  knowledgeBases: KnowledgeBase[];
+  disabled?: boolean;
+  placeholder?: string;
+  allowAll?: boolean;
+  className?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedKb = knowledgeBases.find((kb) => kb.id === value);
+
+  return (
+    <div className={`relative ${className}`} ref={dropdownRef}>
+      <button
+        type="button"
+        disabled={disabled || (knowledgeBases.length === 0 && !allowAll)}
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 flex items-center justify-between gap-2 focus:outline-none focus:border-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition text-left"
+      >
+        <div className="flex items-center gap-2 truncate min-w-0">
+          {value === '' && allowAll ? (
+            <>
+              <Layers className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+              <span className="truncate text-slate-300 font-medium">All Accessible Knowledge Bases</span>
+            </>
+          ) : selectedKb ? (
+            <>
+              {selectedKb.scope === 'PERSONAL' ? (
+                <User className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+              ) : (
+                <Building2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              )}
+              <span className="truncate text-slate-200 font-medium">{selectedKb.name}</span>
+            </>
+          ) : (
+            <span className="text-slate-400 truncate">
+              {knowledgeBases.length === 0 ? '-- No Knowledge Bases Created --' : placeholder}
+            </span>
+          )}
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && !disabled && (
+        <div className="absolute left-0 right-0 top-full mt-1 bg-[#080D1D] border border-white/10 rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto py-1 divide-y divide-white/[0.04] backdrop-blur-md">
+          {allowAll && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange('');
+                setIsOpen(false);
+              }}
+              className={`w-full px-3 py-2 text-left text-[11px] flex items-center gap-2 transition cursor-pointer ${
+                !value ? 'bg-purple-600/20 text-purple-200 font-semibold' : 'text-slate-300 hover:bg-white/[0.04]'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+              <span className="truncate">All Accessible Knowledge Bases</span>
+            </button>
+          )}
+          {knowledgeBases.length === 0 ? (
+            <div className="px-3 py-2 text-[11px] text-slate-500 italic">No Knowledge Bases Created</div>
+          ) : (
+            knowledgeBases.map((kb) => (
+              <button
+                key={kb.id}
+                type="button"
+                onClick={() => {
+                  onChange(kb.id);
+                  setIsOpen(false);
+                }}
+                className={`w-full px-3 py-2 text-left text-[11px] flex items-center gap-2 transition cursor-pointer ${
+                  value === kb.id ? 'bg-purple-600/20 text-purple-200 font-semibold' : 'text-slate-300 hover:bg-white/[0.04]'
+                }`}
+              >
+                {kb.scope === 'PERSONAL' ? (
+                  <User className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                ) : (
+                  <Building2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                )}
+                <span className="truncate">{kb.name}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function DocumentKnowledgePage() {
@@ -240,6 +355,9 @@ export default function DocumentKnowledgePage() {
         const parsed = JSON.parse(userStr);
         setCurrentUser(parsed);
         setUserRole(parsed.role || null);
+        if (parsed.role === 'SINGLE') {
+          setNewKbScope('PERSONAL');
+        }
         setCurrentUserId(parsed.id || parsed.userId || null);
         if (parsed.permissions) {
           setUserPermissions(typeof parsed.permissions === 'string' ? JSON.parse(parsed.permissions) : parsed.permissions);
@@ -256,7 +374,10 @@ export default function DocumentKnowledgePage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data) {
-          if (data.role) setUserRole(data.role);
+          if (data.role) {
+            setUserRole(data.role);
+            if (data.role === 'SINGLE') setNewKbScope('PERSONAL');
+          }
           if (data.id) setCurrentUserId(data.id);
           if (data.permissions) {
             setUserPermissions(typeof data.permissions === 'string' ? JSON.parse(data.permissions) : data.permissions);
@@ -295,7 +416,7 @@ export default function DocumentKnowledgePage() {
         body: JSON.stringify({
           name: newKbName.trim(),
           description: newKbDescription.trim() || undefined,
-          scope: newKbScope,
+          scope: userRole === 'SINGLE' ? 'PERSONAL' : newKbScope,
         }),
       });
 
@@ -581,12 +702,12 @@ export default function DocumentKnowledgePage() {
 
   const filteredKnowledgeBases = useMemo(() => {
     return knowledgeBases.filter((kb) => {
-      const matchesScope = activeKbScopeTab === 'ALL' || kb.scope === activeKbScopeTab;
+      const matchesScope = userRole === 'SINGLE' || activeKbScopeTab === 'ALL' || kb.scope === activeKbScopeTab;
       const q = kbSearchQuery.toLowerCase().trim();
       const matchesSearch = !q || kb.name.toLowerCase().includes(q) || (kb.description && kb.description.toLowerCase().includes(q));
       return matchesScope && matchesSearch;
     });
-  }, [knowledgeBases, activeKbScopeTab, kbSearchQuery]);
+  }, [knowledgeBases, activeKbScopeTab, kbSearchQuery, userRole]);
 
   const filteredDocuments = useMemo(() => {
     if (!selectedKbFilter) return [];
@@ -675,22 +796,24 @@ export default function DocumentKnowledgePage() {
                 />
               </div>
 
-              {/* Scope Filter Tabs */}
-              <div className="flex items-center gap-1.5 p-1 bg-black/40 border border-white/5 rounded-xl text-xs shrink-0">
-                {(['ALL', 'ORGANIZATION', 'PERSONAL'] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveKbScopeTab(tab)}
-                    className={`px-3 py-1 rounded-lg font-medium transition cursor-pointer ${
-                      activeKbScopeTab === tab
-                        ? 'bg-violet-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {tab === 'ALL' ? 'All' : tab === 'ORGANIZATION' ? 'Organization' : 'Personal'}
-                  </button>
-                ))}
-              </div>
+              {/* Scope Filter Tabs - Only shown when user is in an organization (not SINGLE) */}
+              {userRole !== 'SINGLE' && (
+                <div className="flex items-center gap-1.5 p-1 bg-black/40 border border-white/5 rounded-xl text-xs shrink-0">
+                  {(['ALL', 'ORGANIZATION', 'PERSONAL'] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveKbScopeTab(tab)}
+                      className={`px-3 py-1 rounded-lg font-medium transition cursor-pointer ${
+                        activeKbScopeTab === tab
+                          ? 'bg-violet-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {tab === 'ALL' ? 'All' : tab === 'ORGANIZATION' ? 'Organization' : 'Personal'}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -730,15 +853,17 @@ export default function DocumentKnowledgePage() {
                                 <CheckCircle2 className="w-2.5 h-2.5" /> Selected
                               </span>
                             )}
-                            <span
-                              className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold border ${
-                                kb.scope === 'ORGANIZATION'
-                                  ? 'bg-blue-950/40 text-blue-300 border-blue-800/30'
-                                  : 'bg-purple-950/40 text-purple-300 border-purple-800/30'
-                              }`}
-                            >
-                              {kb.scope}
-                            </span>
+                            {userRole !== 'SINGLE' && (
+                              <span
+                                className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold border ${
+                                  kb.scope === 'ORGANIZATION'
+                                    ? 'bg-blue-950/40 text-blue-300 border-blue-800/30'
+                                    : 'bg-purple-950/40 text-purple-300 border-purple-800/30'
+                                }`}
+                              >
+                                {kb.scope}
+                              </span>
+                            )}
                           </div>
                         </div>
                         {kb.description && (
@@ -847,25 +972,13 @@ export default function DocumentKnowledgePage() {
                       <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
                         Destination Knowledge Base (Required)
                       </label>
-                      <select
+                      <KnowledgeBaseDropdown
                         value={targetUploadKbId}
-                        onChange={(e) => setTargetUploadKbId(e.target.value)}
-                        disabled={knowledgeBases.length === 0 || isUploading}
-                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        {knowledgeBases.length === 0 ? (
-                          <option value="" disabled>-- No Knowledge Bases Created --</option>
-                        ) : (
-                          <>
-                            <option value="" disabled>-- Select a Knowledge Base --</option>
-                            {knowledgeBases.map((kb) => (
-                              <option key={kb.id} value={kb.id} className="bg-[#080D1D] text-slate-200">
-                                [{kb.scope}] {kb.name}
-                              </option>
-                            ))}
-                          </>
-                        )}
-                      </select>
+                        onChange={(id) => setTargetUploadKbId(id)}
+                        knowledgeBases={knowledgeBases}
+                        disabled={isUploading}
+                        placeholder="-- Select a Knowledge Base --"
+                      />
                     </div>
 
                     {knowledgeBases.length === 0 && (
@@ -885,10 +998,11 @@ export default function DocumentKnowledgePage() {
                       <select
                         value={uploadChunkStrategy}
                         onChange={(e) => setUploadChunkStrategy(e.target.value as any)}
-                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none"
+                        disabled={isUploading}
+                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none focus:border-purple-500/50 disabled:opacity-50 cursor-pointer"
                       >
-                        <option value="hierarchical">Hierarchical (Parent ~3000ch + Child ~600ch)</option>
-                        <option value="recursive">Recursive Paragraph Split (~800ch)</option>
+                        <option value="hierarchical" className="bg-[#080D1D] text-slate-200 py-1.5">Hierarchical (Parent ~3000ch + Child ~600ch)</option>
+                        <option value="recursive" className="bg-[#080D1D] text-slate-200 py-1.5">Recursive Paragraph Split (~800ch)</option>
                       </select>
                     </div>
 
@@ -1118,18 +1232,13 @@ export default function DocumentKnowledgePage() {
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1.5">
                     Target Knowledge Base
                   </label>
-                  <select
+                  <KnowledgeBaseDropdown
                     value={testTargetKbId}
-                    onChange={(e) => setTestTargetKbId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-black/45 border border-white/10 rounded-xl text-xs text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
-                  >
-                    <option value="">-- All Accessible Knowledge Bases --</option>
-                    {knowledgeBases.map((kb) => (
-                      <option key={kb.id} value={kb.id} className="bg-[#080D1D] text-slate-200">
-                        [{kb.scope}] {kb.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(id) => setTestTargetKbId(id)}
+                    knowledgeBases={knowledgeBases}
+                    allowAll={true}
+                    placeholder="-- All Accessible Knowledge Bases --"
+                  />
                 </div>
 
                 <div>
@@ -1154,10 +1263,10 @@ export default function DocumentKnowledgePage() {
                     <select
                       value={queryAnalysisChoice}
                       onChange={(e) => setQueryAnalysisChoice(e.target.value as any)}
-                      className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
+                      className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none focus:border-purple-500/50 cursor-pointer"
                     >
-                      <option value="rule">Rule-Based (~1ms)</option>
-                      <option value="llm">LLM Gemini (~1.5s)</option>
+                      <option value="rule" className="bg-[#080D1D] text-slate-200 py-1.5">Rule-Based (~1ms)</option>
+                      <option value="llm" className="bg-[#080D1D] text-slate-200 py-1.5">LLM Gemini (~1.5s)</option>
                     </select>
                   </div>
 
@@ -1168,11 +1277,11 @@ export default function DocumentKnowledgePage() {
                     <select
                       value={rerankerChoice}
                       onChange={(e) => setRerankerChoice(e.target.value as any)}
-                      className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
+                      className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none focus:border-purple-500/50 cursor-pointer"
                     >
-                      <option value="simple_lexical">Simple Lexical (Fast)</option>
-                      <option value="local_cross_encoder">Cross-Encoder (Neural)</option>
-                      <option value="none">None (RRF Only)</option>
+                      <option value="simple_lexical" className="bg-[#080D1D] text-slate-200 py-1.5">Simple Lexical (Fast)</option>
+                      <option value="local_cross_encoder" className="bg-[#080D1D] text-slate-200 py-1.5">Cross-Encoder (Neural)</option>
+                      <option value="none" className="bg-[#080D1D] text-slate-200 py-1.5">None (RRF Only)</option>
                     </select>
                   </div>
 
@@ -1183,11 +1292,11 @@ export default function DocumentKnowledgePage() {
                     <select
                       value={contextStrategyChoice}
                       onChange={(e) => setContextStrategyChoice(e.target.value as any)}
-                      className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
+                      className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none focus:border-purple-500/50 cursor-pointer"
                     >
-                      <option value="parent_child">Parent-Child</option>
-                      <option value="neighbors">Neighbor Window</option>
-                      <option value="top_chunks">Top Chunks</option>
+                      <option value="parent_child" className="bg-[#080D1D] text-slate-200 py-1.5">Parent-Child</option>
+                      <option value="neighbors" className="bg-[#080D1D] text-slate-200 py-1.5">Neighbor Window</option>
+                      <option value="top_chunks" className="bg-[#080D1D] text-slate-200 py-1.5">Top Chunks</option>
                     </select>
                   </div>
                 </div>
@@ -1385,35 +1494,37 @@ export default function DocumentKnowledgePage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                  Scope
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewKbScope('ORGANIZATION')}
-                    className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer ${
-                      newKbScope === 'ORGANIZATION'
-                        ? 'bg-violet-950/50 border-violet-500/50 text-violet-200'
-                        : 'bg-black/20 border-white/5 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Organization
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewKbScope('PERSONAL')}
-                    className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer ${
-                      newKbScope === 'PERSONAL'
-                        ? 'bg-violet-950/50 border-violet-500/50 text-violet-200'
-                        : 'bg-black/20 border-white/5 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Personal
-                  </button>
+              {userRole !== 'SINGLE' && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Scope
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewKbScope('ORGANIZATION')}
+                      className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer ${
+                        newKbScope === 'ORGANIZATION'
+                          ? 'bg-violet-950/50 border-violet-500/50 text-violet-200'
+                          : 'bg-black/20 border-white/5 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Organization
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewKbScope('PERSONAL')}
+                      className={`py-2 px-3 text-xs rounded-xl border font-semibold transition cursor-pointer ${
+                        newKbScope === 'PERSONAL'
+                          ? 'bg-violet-950/50 border-violet-500/50 text-violet-200'
+                          : 'bg-black/20 border-white/5 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Personal
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-3 border-t border-white/[0.04]">
                 <button

@@ -70,8 +70,8 @@ export class GeminiEmbedder {
   /**
    * Generates embeddings with automatic environment & provider switching:
    * - If EMBEDDING_PROVIDER='local' in dev: runs local Python SentenceTransformers (bge-m3).
-   * - Otherwise: calls Google Gemini Cloud text-embedding-004.
-   * - Gracefully falls back if local Python or cloud network fails.
+   * - Otherwise: calls Google Gemini Cloud gemini-embedding-001 (768 dimensions).
+   * - Gracefully falls back if local Python fails.
    */
   static async getEmbeddings(texts: string[], orgId?: string): Promise<number[][]> {
     if (!texts || texts.length === 0) return [];
@@ -130,23 +130,22 @@ export class GeminiEmbedder {
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey });
 
+      // Guarantee every text passed to Google's embedContent is non-empty.
+      // Google Gemini returns 400 "EmbedContentRequest.content contains an empty Part" on empty strings.
+      const safeTexts = sanitizedTexts.map((t) => {
+        const trimmed = (t || '').trim();
+        return trimmed.length > 0 ? trimmed : ' ';
+      });
+
       const results: number[][] = [];
       // Batch in slices of 50 to respect Gemini API batch size
-      for (let i = 0; i < sanitizedTexts.length; i += 50) {
-        const slice = sanitizedTexts.slice(i, i + 50);
-        let response: any;
-        try {
-          response = await ai.models.embedContent({
-            model: 'gemini-embedding-001',
-            contents: slice,
-            config: { outputDimensionality: 768 },
-          });
-        } catch {
-          response = await ai.models.embedContent({
-            model: 'text-embedding-004',
-            contents: slice,
-          });
-        }
+      for (let i = 0; i < safeTexts.length; i += 50) {
+        const slice = safeTexts.slice(i, i + 50);
+        const response: any = await ai.models.embedContent({
+          model: 'gemini-embedding-001',
+          contents: slice,
+          config: { outputDimensionality: 768 },
+        });
 
         if (response.embeddings) {
           for (let j = 0; j < response.embeddings.length; j++) {
@@ -159,10 +158,10 @@ export class GeminiEmbedder {
         }
       }
 
-      if (results.length === sanitizedTexts.length) {
+      if (results.length === safeTexts.length) {
         return results;
       }
-      throw new Error(`Embedding count mismatch: expected ${sanitizedTexts.length}, got ${results.length}`);
+      throw new Error(`Embedding count mismatch: expected ${safeTexts.length}, got ${results.length}`);
     } catch (err: any) {
       throw new Error(`Failed to generate embeddings: ${err.message}`);
     }
