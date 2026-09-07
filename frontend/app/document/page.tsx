@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow, Search, CheckCircle2, AlertCircle } from 'lucide-react';
+import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow, Search, CheckCircle2, AlertCircle, Lock, ShieldAlert } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { Loader } from '../../components/Loader';
 import Swal from 'sweetalert2';
@@ -63,8 +63,8 @@ export default function DocumentKnowledgePage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [activeKbScopeTab, setActiveKbScopeTab] = useState<'ALL' | 'ORGANIZATION' | 'PERSONAL'>('ALL');
-  const [selectedKbFilter, setSelectedKbFilter] = useState<string>('ALL');
-  const [isLoading, setIsLoading] = useState(true);
+  const [selectedKbFilter, setSelectedKbFilter] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
 
   // Search filter states
   const [kbSearchQuery, setKbSearchQuery] = useState('');
@@ -92,6 +92,63 @@ export default function DocumentKnowledgePage() {
   const [isTesting, setIsTesting] = useState(false);
   const [queryResult, setQueryResult] = useState<TestQueryResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+
+  // User Role & Permissions State
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userPermissions, setUserPermissions] = useState<any>(null);
+
+  const canManageOrgKb =
+    userRole === 'ADMIN' ||
+    userRole === 'SINGLE' ||
+    userPermissions?.canChangeOrgKnowledgeBase === true;
+
+  // Helper for friendly permission error modal & toast
+  const showPermissionAlert = (title: string, message: string, contextAdvice?: string) => {
+    Swal.fire({
+      title: `<span class="text-base font-bold text-slate-100 flex items-center justify-center gap-2">
+        <svg class="w-5 h-5 text-amber-400 inline-block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        ${title}
+      </span>`,
+      html: `
+        <div class="text-left space-y-3 font-sans pt-1">
+          <p class="text-xs text-slate-200 leading-relaxed font-medium">${message}</p>
+          <div class="p-3 bg-white/[0.04] border border-white/10 rounded-xl text-[11px] text-slate-400 space-y-1.5 leading-relaxed">
+            <span class="font-semibold text-purple-300 block">Why am I seeing this?</span>
+            <p>${contextAdvice || 'Organization knowledge bases and their documents are shared across your entire team. Only organization administrators or members with explicit management permissions can modify them.'}</p>
+          </div>
+          <p class="text-[11px] text-slate-400">💡 <em>Contact your organization administrator if you need this document or knowledge base modified.</em></p>
+        </div>
+      `,
+      confirmButtonText: 'Understood',
+      confirmButtonColor: '#8B5CF6',
+      background: '#080D1D',
+      color: '#F5F7FF',
+      customClass: {
+        popup: 'border border-white/10 rounded-2xl shadow-2xl',
+      },
+    });
+  };
+
+  const handleActionError = (err: any, fallbackTitle: string) => {
+    const rawMsg = err?.message || String(err);
+    const isPermissionError =
+      rawMsg.includes('Access Denied') ||
+      rawMsg.includes('permission') ||
+      rawMsg.includes('Only administrators') ||
+      rawMsg.includes('cannot delete') ||
+      rawMsg.includes('cannot upload');
+
+    if (isPermissionError) {
+      showPermissionAlert('Permission Required', rawMsg);
+      toast.error('🔒 Access Restricted: Administrator permissions required.');
+    } else {
+      toast.error(`${fallbackTitle}: ${rawMsg}`);
+    }
+  };
 
   // Auth helper
   const getAuthToken = () => {
@@ -127,19 +184,23 @@ export default function DocumentKnowledgePage() {
   };
 
   // 2. Fetch Documents from Backend
-  const fetchDocuments = async () => {
+  const fetchDocuments = async (overrideKbId?: string) => {
     const token = getAuthToken();
     if (!token) {
       setIsLoading(false);
       return;
     }
 
+    const targetKbId = overrideKbId !== undefined ? overrideKbId : selectedKbFilter;
+    if (!targetKbId) {
+      setDocuments([]);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const url = selectedKbFilter && selectedKbFilter !== 'ALL'
-        ? `${API_URL}/api/rag/documents?knowledgeSourceId=${selectedKbFilter}`
-        : `${API_URL}/api/rag/documents`;
-
+      const url = `${API_URL}/api/rag/documents?knowledgeSourceId=${targetKbId}`;
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -167,13 +228,48 @@ export default function DocumentKnowledgePage() {
       router.push('/login');
       return;
     }
+
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const parsed = JSON.parse(userStr);
+        setCurrentUser(parsed);
+        setUserRole(parsed.role || null);
+        setCurrentUserId(parsed.id || parsed.userId || null);
+        if (parsed.permissions) {
+          setUserPermissions(typeof parsed.permissions === 'string' ? JSON.parse(parsed.permissions) : parsed.permissions);
+        }
+      } catch (e) {
+        console.warn('Failed to parse user session:', e);
+      }
+    }
+
+    // Refresh live profile & permissions
+    fetch(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) {
+          if (data.role) setUserRole(data.role);
+          if (data.id) setCurrentUserId(data.id);
+          if (data.permissions) {
+            setUserPermissions(typeof data.permissions === 'string' ? JSON.parse(data.permissions) : data.permissions);
+          }
+        }
+      })
+      .catch(() => {});
+
     fetchKnowledgeBases();
   }, []);
 
   useEffect(() => {
     const token = getAuthToken();
-    if (token) {
+    if (token && selectedKbFilter) {
       fetchDocuments();
+    } else if (!selectedKbFilter) {
+      setDocuments([]);
+      setIsLoading(false);
     }
   }, [selectedKbFilter]);
 
@@ -209,14 +305,43 @@ export default function DocumentKnowledgePage() {
       setIsCreateKbModalOpen(false);
       fetchKnowledgeBases();
     } catch (err: any) {
-      toast.error(`Creation Failed: ${err.message}`);
+      handleActionError(err, 'Creation Failed');
     } finally {
       setIsCreatingKb(false);
     }
   };
 
   // 4. Handle Delete Knowledge Base
-  const handleDeleteKnowledgeBase = async (kbId: string, kbName: string) => {
+  const handleDeleteKnowledgeBase = async (
+    kbId: string,
+    kbName: string,
+    kbScope?: string,
+    createdByUserId?: string
+  ) => {
+    if (kbScope === 'ORGANIZATION' && userRole === 'MEMBER') {
+      showPermissionAlert(
+        'Admin Permission Required',
+        'Only Organization Administrators can delete organization-level knowledge bases.',
+        'Deleting an entire organization knowledge base permanently erases all contained documents and embeddings for all team members. To prevent accidental data loss, this action is restricted to administrators.'
+      );
+      return;
+    }
+
+    if (
+      kbScope === 'PERSONAL' &&
+      userRole === 'MEMBER' &&
+      createdByUserId &&
+      currentUserId &&
+      createdByUserId !== currentUserId
+    ) {
+      showPermissionAlert(
+        'Permission Required',
+        'You can only delete your own personal knowledge bases.',
+        'This knowledge base belongs to another member and cannot be deleted by other users.'
+      );
+      return;
+    }
+
     const result = await Swal.fire({
       title: 'Delete Knowledge Base?',
       text: `Are you sure you want to delete "${kbName}"? All contained documents and chunks will be deleted.`,
@@ -228,6 +353,9 @@ export default function DocumentKnowledgePage() {
       cancelButtonColor: '#1E293B',
       background: '#080D1D',
       color: '#F5F7FF',
+      customClass: {
+        popup: 'border border-white/10 rounded-2xl shadow-2xl',
+      },
     });
 
     if (!result.isConfirmed) return;
@@ -239,18 +367,18 @@ export default function DocumentKnowledgePage() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error || 'Failed to delete knowledge base.');
       }
 
       toast.success(`Knowledge base "${kbName}" removed.`);
-      if (selectedKbFilter === kbId) setSelectedKbFilter('ALL');
+      if (selectedKbFilter === kbId) setSelectedKbFilter('');
       if (targetUploadKbId === kbId) setTargetUploadKbId('');
       fetchKnowledgeBases();
       fetchDocuments();
     } catch (err: any) {
-      toast.error(`Delete Failed: ${err.message}`);
+      handleActionError(err, 'Delete Failed');
     }
   };
 
@@ -260,6 +388,17 @@ export default function DocumentKnowledgePage() {
       toast.error('Please select or create a destination Knowledge Base first.');
       return;
     }
+
+    const targetKb = knowledgeBases.find((k) => k.id === targetUploadKbId);
+    if (targetKb?.scope === 'ORGANIZATION' && userRole === 'MEMBER' && !canManageOrgKb) {
+      showPermissionAlert(
+        'Upload Permission Required',
+        'You do not have permission to upload documents to organization knowledge bases.',
+        'Adding documents to organization-wide knowledge bases requires Administrator privileges or explicit "Manage Knowledge Base" permission.'
+      );
+      return;
+    }
+
     setIsUploading(true);
 
     try {
@@ -291,17 +430,21 @@ export default function DocumentKnowledgePage() {
             }),
           });
 
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             throw new Error(data.error || 'Upload failed');
           }
 
           toast.success(`"${selectedFile.name}" indexed into knowledge base.`);
           setSelectedFile(null);
-          fetchDocuments();
+          if (selectedKbFilter !== targetUploadKbId) {
+            setSelectedKbFilter(targetUploadKbId);
+          } else {
+            fetchDocuments();
+          }
           fetchKnowledgeBases();
         } catch (postErr: any) {
-          toast.error(`Ingestion Failed: ${postErr.message}`);
+          handleActionError(postErr, 'Ingestion Failed');
         } finally {
           setIsUploading(false);
         }
@@ -309,13 +452,22 @@ export default function DocumentKnowledgePage() {
 
       reader.readAsDataURL(selectedFile);
     } catch (err: any) {
-      toast.error(`Error: ${err.message}`);
+      handleActionError(err, 'Upload Failed');
       setIsUploading(false);
     }
   };
 
   // 3. Delete Document
-  const handleDeleteDocument = async (id: string, name: string) => {
+  const handleDeleteDocument = async (id: string, name: string, docKbScope?: string) => {
+    if (docKbScope === 'ORGANIZATION' && userRole === 'MEMBER' && !canManageOrgKb) {
+      showPermissionAlert(
+        'Permission Required',
+        'You do not have permission to delete documents from organization knowledge bases.',
+        'Organization-wide documents are shared with your team. Only organization administrators or members with explicit "Manage Knowledge Base" permissions can remove them.'
+      );
+      return;
+    }
+
     const result = await Swal.fire({
       title: 'Delete Document?',
       text: `Are you sure you want to delete "${name}"? All vector chunks and embeddings will be permanently removed.`,
@@ -327,6 +479,9 @@ export default function DocumentKnowledgePage() {
       cancelButtonColor: '#1E293B',
       background: '#080D1D',
       color: '#F5F7FF',
+      customClass: {
+        popup: 'border border-white/10 rounded-2xl shadow-2xl',
+      },
     });
 
     if (!result.isConfirmed) return;
@@ -340,15 +495,16 @@ export default function DocumentKnowledgePage() {
         },
       });
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error('Failed to delete document');
+        throw new Error(data.error || 'Failed to delete document');
       }
 
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success(`Document "${name}" removed from knowledge base.`);
       fetchKnowledgeBases();
     } catch (err: any) {
-      toast.error(`Delete Failed: ${err.message}`);
+      handleActionError(err, 'Delete Failed');
     }
   };
 
@@ -419,8 +575,9 @@ export default function DocumentKnowledgePage() {
   }, [knowledgeBases, activeKbScopeTab, kbSearchQuery]);
 
   const filteredDocuments = useMemo(() => {
+    if (!selectedKbFilter) return [];
     return documents.filter((doc) => {
-      const matchesKb = selectedKbFilter === 'ALL' || doc.knowledgeSourceId === selectedKbFilter;
+      const matchesKb = doc.knowledgeSourceId === selectedKbFilter;
       const q = docSearchQuery.toLowerCase().trim();
       const matchesSearch = !q || doc.name.toLowerCase().includes(q);
       return matchesKb && matchesSearch;
@@ -479,12 +636,12 @@ export default function DocumentKnowledgePage() {
                 <span className="text-[10px] text-purple-300 font-mono bg-purple-950/40 border border-purple-800/30 px-2 py-0.5 rounded-full">
                   {filteredKnowledgeBases.length} found
                 </span>
-                {selectedKbFilter !== 'ALL' && (
+                {selectedKbFilter && (
                   <button
-                    onClick={() => setSelectedKbFilter('ALL')}
+                    onClick={() => setSelectedKbFilter('')}
                     className="text-[10px] text-violet-400 hover:text-violet-300 underline cursor-pointer ml-2"
                   >
-                    Clear Filter (Show All)
+                    Clear Selection
                   </button>
                 )}
               </div>
@@ -537,9 +694,9 @@ export default function DocumentKnowledgePage() {
                     <div
                       key={kb.id}
                       onClick={() => {
-                        const nextId = isSelected ? 'ALL' : kb.id;
+                        const nextId = isSelected ? '' : kb.id;
                         setSelectedKbFilter(nextId);
-                        if (nextId !== 'ALL') {
+                        if (nextId) {
                           setTargetUploadKbId(nextId);
                           setTestTargetKbId(nextId);
                         }
@@ -579,16 +736,49 @@ export default function DocumentKnowledgePage() {
                         <span className={isSelected ? 'text-violet-300 font-semibold' : ''}>
                           {kb._count?.documents || 0} documents
                         </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteKnowledgeBase(kb.id, kb.name);
-                          }}
-                          className="text-slate-500 hover:text-red-400 p-1 transition cursor-pointer"
-                          title="Delete Knowledge Base"
-                        >
-                          Delete
-                        </button>
+                        {(() => {
+                          const canDeleteKb =
+                            userRole === 'ADMIN' ||
+                            userRole === 'SINGLE' ||
+                            (userRole === 'MEMBER' && kb.scope === 'PERSONAL' && (!kb.createdByUserId || kb.createdByUserId === currentUserId));
+
+                          return canDeleteKb ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteKnowledgeBase(kb.id, kb.name, kb.scope, kb.createdByUserId);
+                              }}
+                              className="text-slate-400 hover:text-red-400 p-1 transition cursor-pointer flex items-center gap-1 text-[10px]"
+                              title="Delete Knowledge Base"
+                            >
+                              Delete
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (kb.scope === 'ORGANIZATION') {
+                                  showPermissionAlert(
+                                    'Admin Permission Required',
+                                    'Only Organization Administrators can delete organization-level knowledge bases.',
+                                    'Deleting an entire organization knowledge base permanently erases all contained documents and embeddings for all team members. To prevent accidental data loss, this action is restricted to administrators.'
+                                  );
+                                } else {
+                                  showPermissionAlert(
+                                    'Permission Required',
+                                    'You can only delete your own personal knowledge bases.',
+                                    'This knowledge base belongs to another member and cannot be deleted by other users.'
+                                  );
+                                }
+                              }}
+                              className="text-slate-500 hover:text-amber-400 p-1 transition cursor-pointer flex items-center gap-1 text-[10px]"
+                              title="Permission Required to Delete"
+                            >
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>Protected</span>
+                            </button>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -737,16 +927,16 @@ export default function DocumentKnowledgePage() {
                   <h2 className="text-xs font-bold text-slate-100 uppercase tracking-widest">
                     Indexed Documents ({filteredDocuments.length})
                   </h2>
-                  {selectedKbFilter !== 'ALL' && (
+                  {selectedKbFilter && (
                     <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-mono flex items-center gap-1">
-                      <span>Filtered:</span>
-                      <span className="font-bold text-white truncate max-w-[120px]">
+                      <span>Selected KB:</span>
+                      <span className="font-bold text-white truncate max-w-[140px]">
                         {knowledgeBases.find((k) => k.id === selectedKbFilter)?.name || 'KB'}
                       </span>
                       <button
-                        onClick={() => setSelectedKbFilter('ALL')}
-                        className="ml-1 text-slate-400 hover:text-white"
-                        title="Clear Filter"
+                        onClick={() => setSelectedKbFilter('')}
+                        className="ml-1 text-slate-400 hover:text-white cursor-pointer"
+                        title="Clear Selection"
                       >
                         ✕
                       </button>
@@ -768,26 +958,48 @@ export default function DocumentKnowledgePage() {
                   </div>
 
                   <button
-                    onClick={fetchDocuments}
-                    className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer shrink-0"
+                    onClick={() => fetchDocuments()}
+                    disabled={!selectedKbFilter}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Refresh ⟳
                   </button>
                 </div>
               </div>
 
-              {isLoading ? (
+              {!selectedKbFilter ? (
+                <div className="text-center py-12 px-4 border border-dashed border-white/10 rounded-xl bg-black/20 flex flex-col items-center justify-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xs font-semibold text-slate-200">No Knowledge Base Selected</h3>
+                  <p className="text-[11px] text-slate-400 max-w-sm">
+                    Select a Knowledge Base from the collection above to view its ingested documents.
+                  </p>
+                </div>
+              ) : isLoading ? (
                 <div className="text-center py-8 text-xs text-slate-500 font-mono">Loading documents...</div>
               ) : filteredDocuments.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-500">
-                  {docSearchQuery || selectedKbFilter !== 'ALL'
-                    ? 'No documents match your search / filter criteria.'
-                    : 'No documents found. Upload a document into a Knowledge Base to begin.'}
+                  {docSearchQuery
+                    ? 'No documents match your search query.'
+                    : 'No documents found in this Knowledge Base. Upload a document to begin.'}
                 </div>
               ) : (
                 <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
                   {filteredDocuments.map((doc) => {
                     const kb = knowledgeBases.find((k) => k.id === doc.knowledgeSourceId);
+                    const isOrgDoc = kb?.scope === 'ORGANIZATION';
+                    const isOtherMemberPersonalDoc =
+                      kb?.scope === 'PERSONAL' &&
+                      Boolean(kb?.createdByUserId && currentUserId && kb.createdByUserId !== currentUserId);
+                    const canDeleteDoc =
+                      userRole === 'ADMIN' ||
+                      userRole === 'SINGLE' ||
+                      (userRole === 'MEMBER' && (isOrgDoc ? canManageOrgKb : !isOtherMemberPersonalDoc));
+
                     return (
                       <div
                         key={doc.id}
@@ -816,15 +1028,35 @@ export default function DocumentKnowledgePage() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleDeleteDocument(doc.id, doc.name)}
-                            className="p-1.5 hover:bg-red-950/30 text-slate-500 hover:text-red-400 rounded-lg transition cursor-pointer"
-                            title="Delete Document"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                          </button>
+                          {canDeleteDoc ? (
+                            <button
+                              onClick={() => handleDeleteDocument(doc.id, doc.name, kb?.scope)}
+                              className="p-1.5 hover:bg-red-950/30 text-slate-400 hover:text-red-400 rounded-lg transition cursor-pointer"
+                              title="Delete Document"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                showPermissionAlert(
+                                  'Permission Required',
+                                  isOrgDoc
+                                    ? 'You do not have permission to delete documents from organization knowledge bases.'
+                                    : 'You do not have permission to delete documents from another member\'s personal knowledge base.',
+                                  isOrgDoc
+                                    ? 'Organization-wide documents are shared across your entire team. Only organization administrators or members with explicit "Manage Knowledge Base" permissions can remove them.'
+                                    : 'This document belongs to another member\'s private personal knowledge base and cannot be deleted by other users.'
+                                )
+                              }
+                              className="p-1.5 bg-white/[0.03] hover:bg-amber-500/10 text-slate-500 hover:text-amber-400 border border-white/5 rounded-lg transition cursor-pointer"
+                              title="Permission Required to Delete"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
