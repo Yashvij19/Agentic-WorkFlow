@@ -18,31 +18,6 @@ export default function GuardrailNode({ id, data }: NodeProps) {
   const retryFeedback = data.retryFeedback;
 
   let borderClass = 'border-rose-500/25';
-  let modeBadgeLabel = 'Strict JSON';
-  let modeBadgeColor = 'bg-rose-950/50 text-rose-300 border-rose-800/40';
-
-  switch (mode) {
-    case 'strict_json':
-      modeBadgeLabel = 'Strict JSON';
-      modeBadgeColor = 'bg-rose-950/50 text-rose-300 border-rose-800/40';
-      break;
-    case 'required_keys':
-      modeBadgeLabel = `Keys: ${Array.isArray(data.requiredKeys) && data.requiredKeys.length > 0 ? data.requiredKeys.slice(0, 2).join(',') : 'Schema'}`;
-      modeBadgeColor = 'bg-orange-950/50 text-orange-300 border-orange-800/40';
-      break;
-    case 'regex_match':
-      modeBadgeLabel = 'Regex Match';
-      modeBadgeColor = 'bg-amber-950/50 text-amber-300 border-amber-800/40';
-      break;
-    case 'banned_keywords':
-      modeBadgeLabel = 'Safety Filter';
-      modeBadgeColor = 'bg-red-950/50 text-red-300 border-red-800/40';
-      break;
-    case 'llm_judge':
-      modeBadgeLabel = 'LLM Judge';
-      modeBadgeColor = 'bg-purple-950/50 text-purple-300 border-purple-800/40';
-      break;
-  }
 
   let statusBadge = null;
 
@@ -102,18 +77,13 @@ export default function GuardrailNode({ id, data }: NodeProps) {
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <span className={`text-[9px] font-mono font-bold uppercase tracking-wider border px-2 py-0.5 rounded-lg ${modeBadgeColor}`}>
-            {modeBadgeLabel}
-          </span>
-          <button
-            onClick={handleDelete}
-            className="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs p-1 rounded-md hover:bg-white/[0.06] flex items-center justify-center"
-            title="Delete Guardrail Node"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
+        <button
+          onClick={handleDelete}
+          className="text-slate-500 hover:text-red-400 transition cursor-pointer text-xs p-1 rounded-md hover:bg-white/[0.06] flex items-center justify-center"
+          title="Delete Guardrail Node"
+        >
+          <X className="w-3 h-3" />
+        </button>
       </div>
 
       {/* Body Content */}
@@ -127,7 +97,7 @@ export default function GuardrailNode({ id, data }: NodeProps) {
 
           <p className="text-xs text-slate-200 line-clamp-2 font-mono">
             {mode === 'strict_json' && 'Strict valid JSON parser'}
-            {mode === 'required_keys' && `Required: [${(data.requiredKeys || ['summary']).join(', ')}]`}
+            {mode === 'required_keys' && `Required: [${(data.requiredKeys || []).join(', ') || 'None'}]`}
             {mode === 'regex_match' && `Pattern: /${data.regexPattern || '.*'}/`}
             {mode === 'banned_keywords' && `Blocked: [${(data.bannedWords || []).join(', ') || 'None'}]`}
             {mode === 'llm_judge' && (data.llmJudgePrompt ? data.llmJudgePrompt.slice(0, 50) + '...' : 'Gemini Quality Judge')}

@@ -19,6 +19,26 @@ export class GeminiEmbedder {
   }
 
   /**
+   * Determines active query embedding provider:
+   * - In production (NODE_ENV === 'production'): Always 'gemini' to protect the 512MB RAM limit.
+   * - In local development: Respects QUERY_EMBEDDING='local' | 'production' | 'gemini'
+   *   (falls back to EMBEDDING_PROVIDER, defaults to 'gemini').
+   */
+  static getQueryProvider(): 'gemini' | 'local' {
+    if (process.env.NODE_ENV === 'production') {
+      return 'gemini';
+    }
+    const queryConfig = (process.env.QUERY_EMBEDDING || '').toLowerCase().trim();
+    if (queryConfig === 'production' || queryConfig === 'gemini') {
+      return 'gemini';
+    }
+    if (queryConfig === 'local') {
+      return 'local';
+    }
+    return this.getProvider();
+  }
+
+  /**
    * Retrieves decrypted Gemini API key strictly from the organization's saved credentials in DB.
    * Multi-tenant isolation: Never falls back to server-level process.env.
    */
@@ -40,6 +60,14 @@ export class GeminiEmbedder {
   }
 
   /**
+   * Strips lone Unicode surrogates (U+D800 to U+DFFF) to prevent UTF-8 codec errors in Python or JSON APIs.
+   */
+  static sanitizeText(text: string): string {
+    if (!text) return '';
+    return text.replace(/[\uD800-\uDFFF]/g, '');
+  }
+
+  /**
    * Generates embeddings with automatic environment & provider switching:
    * - If EMBEDDING_PROVIDER='local' in dev: runs local Python SentenceTransformers (bge-m3).
    * - Otherwise: calls Google Gemini Cloud text-embedding-004.
@@ -48,18 +76,47 @@ export class GeminiEmbedder {
   static async getEmbeddings(texts: string[], orgId?: string): Promise<number[][]> {
     if (!texts || texts.length === 0) return [];
 
+    const sanitizedTexts = texts.map((t) => this.sanitizeText(t));
     const provider = this.getProvider();
 
     // 1. Local Python SentenceTransformers (for local testing on 16GB RAM laptop)
     if (provider === 'local') {
       try {
-        return await this.getLocalEmbeddings(texts);
+        return await this.getLocalEmbeddings(sanitizedTexts);
       } catch (err: any) {
         console.warn(`⚠️ [Embedder] Local SentenceTransformers failed (${err.message}). Falling back to Gemini Cloud.`);
       }
     }
 
-    // 2. Google Gemini Cloud Embeddings (for 512MB Render production & fast cloud dev)
+    // 2. Google Gemini Cloud Embeddings
+    return await this.getGeminiCloudEmbeddings(sanitizedTexts, orgId);
+  }
+
+  /**
+   * Single text query embedding for vector similarity search.
+   * Controlled independently by QUERY_EMBEDDING='local' | 'production' | 'gemini'.
+   */
+  static async getQueryEmbedding(query: string, orgId?: string): Promise<number[]> {
+    const cleanQuery = this.sanitizeText(query);
+    const provider = this.getQueryProvider();
+
+    if (provider === 'local') {
+      try {
+        const res = await this.getLocalEmbeddings([cleanQuery]);
+        if (res && res.length > 0) return res[0];
+      } catch (err: any) {
+        console.warn(`⚠️ [Embedder] Local query embedding failed, falling back to Gemini.`);
+      }
+    }
+
+    const cloudRes = await this.getGeminiCloudEmbeddings([cleanQuery], orgId);
+    return cloudRes[0] || this.fallbackVector(cleanQuery);
+  }
+
+  /**
+   * Encapsulates Google Gemini Cloud API embeddings with batching and fallback
+   */
+  private static async getGeminiCloudEmbeddings(sanitizedTexts: string[], orgId?: string): Promise<number[][]> {
     const apiKey = await this.getApiKey(orgId);
 
     if (apiKey) {
@@ -69,12 +126,21 @@ export class GeminiEmbedder {
 
         const results: number[][] = [];
         // Batch in slices of 50 to respect Gemini API batch size
-        for (let i = 0; i < texts.length; i += 50) {
-          const slice = texts.slice(i, i + 50);
-          const response = await ai.models.embedContent({
-            model: 'text-embedding-004',
-            contents: slice,
-          });
+        for (let i = 0; i < sanitizedTexts.length; i += 50) {
+          const slice = sanitizedTexts.slice(i, i + 50);
+          let response: any;
+          try {
+            response = await ai.models.embedContent({
+              model: 'gemini-embedding-001',
+              contents: slice,
+              config: { outputDimensionality: 768 },
+            });
+          } catch {
+            response = await ai.models.embedContent({
+              model: 'text-embedding-004',
+              contents: slice,
+            });
+          }
 
           if (response.embeddings) {
             for (let j = 0; j < response.embeddings.length; j++) {
@@ -84,7 +150,7 @@ export class GeminiEmbedder {
           }
         }
 
-        if (results.length === texts.length) {
+        if (results.length === sanitizedTexts.length) {
           return results;
         }
       } catch (err: any) {
@@ -92,27 +158,8 @@ export class GeminiEmbedder {
       }
     }
 
-    // 3. Fallback normalized vector
-    return texts.map((t) => this.fallbackVector(t));
-  }
-
-  /**
-   * Single text query embedding for vector similarity search
-   */
-  static async getQueryEmbedding(query: string, orgId?: string): Promise<number[]> {
-    const provider = this.getProvider();
-
-    if (provider === 'local') {
-      try {
-        const res = await this.getLocalEmbeddings([query]);
-        if (res && res.length > 0) return res[0];
-      } catch (err: any) {
-        console.warn(`⚠️ [Embedder] Local query embedding failed, falling back to Gemini.`);
-      }
-    }
-
-    const res = await this.getEmbeddings([query], orgId);
-    return res[0] || this.fallbackVector(query);
+    // Fallback normalized vector
+    return sanitizedTexts.map((t) => this.fallbackVector(t));
   }
 
   /**

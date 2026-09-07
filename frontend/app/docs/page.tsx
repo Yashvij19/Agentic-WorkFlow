@@ -105,8 +105,8 @@ export default function DocumentationPage() {
               <AetherFlowLogo size={28} showText textSize="text-base" />
             </Link>
             <span className="text-slate-600 text-xs">/</span>
-            <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-[10px] font-mono font-semibold uppercase tracking-wider">
-              Docs & Manual
+            <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-[10px] font-mono font-semibold uppercase tracking-wider">
+              Documentation
             </span>
           </div>
 

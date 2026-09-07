@@ -65,10 +65,16 @@ export class AuthService{
     ) {
 
         const { email, passwordPlain, orgRole, registrationType, orgName, address, inviteToken } = params;
+        const cleanEmail = (email || '').trim().toLowerCase();
 
-        // 1. Check if email is already registered in User table
-        const existing = await prisma.user.findUnique({
-            where: { email }
+        // 1. Check if email is already registered in User table (case-insensitive)
+        const existing = await prisma.user.findFirst({
+            where: {
+                email: {
+                    equals: cleanEmail,
+                    mode: 'insensitive'
+                }
+            }
         });
 
         if (existing) {
@@ -83,51 +89,63 @@ export class AuthService{
         const passwordHash = hashPassword(passwordPlain);
 
         // 2. Check if a pending registration request already exists for this email
-
-        const existingRequest = await prisma.registrationRequest.findUnique({
+        const existingRequest = await prisma.registrationRequest.findFirst({
             where: {
-                email
+                email: {
+                    equals: cleanEmail,
+                    mode: 'insensitive'
+                }
             }
-        })
+        });
         if (existingRequest) {
             if (new Date(existingRequest.expiresAt) > new Date()) {
                 throw new Error(`A registration request for this email is already pending admin approval. (Request ID: ${existingRequest.id})`);
             }
 
             // Request is expired, delete it and allow re-registration
-            await prisma.registrationRequest.delete({
+            await prisma.registrationRequest.deleteMany({
                 where: {
-                    email
+                    email: {
+                        equals: cleanEmail,
+                        mode: 'insensitive'
+                    }
                 }
             });
         }
 
         // Case 1: Single User Registration
-
         if (registrationType === 'SINGLE') {
             return await prisma.$transaction(async (tx) => {
                 const org = await tx.organization.create({
                     data: {
-                        name: `${email.split('@')[0]}'s Workspace`,
+                        name: `${cleanEmail.split('@')[0]}'s Workspace`,
                         address: "NA"
                     }
                 });
                 const user = await tx.user.create({
                     data: {
-                        email,
+                        email: cleanEmail,
                         passwordHash,
                         role: "SINGLE",
                         organizationId: org.id,
                         permissions: {
                             canCreateWorkflow: true,
-                            canViewTeamExecutions: false,
-                            canViewTeamWorkflows: false,
+                            canViewTeamWorkflows: true,
+                            canEditTeamWorkflows: true,
+                            canRenameTeamWorkflows: true,
+                            canExecuteTeamWorkflows: true,
+                            canDeleteTeamWorkflows: true,
+                            canViewTeamExecutions: true,
+                            canViewTeamFailedExecutions: true,
+                            canViewDLQ: true,
+                            canCreatePersonalKnowledgeBase: true,
+                            canChangeOrgKnowledgeBase: true,
                             allowedWorkflowIds: []
                         }
                     }
                 });
                 return { user, status: "APPROVED" as const };
-            })
+            });
         }
 
         // Case 2: Organization Registration
@@ -136,7 +154,6 @@ export class AuthService{
                 throw new Error("Role (ADMIN or MEMBER) is required for organization registration.");
             }
             // Subcase A: Team Admin
-
             if (orgRole === 'ADMIN') {
                 if (!orgName) {
                     throw new Error("Organization name is required to register as Team Admin.");
@@ -150,23 +167,29 @@ export class AuthService{
                     });
                     const user = await tx.user.create({
                         data: {
-                            email,
+                            email: cleanEmail,
                             passwordHash,
                             role: 'ADMIN',
                             organizationId: org.id,
                             permissions: {
                                 canCreateWorkflow: true,
-                                canViewTeamExecutions: true,
                                 canViewTeamWorkflows: true,
+                                canEditTeamWorkflows: true,
+                                canRenameTeamWorkflows: true,
+                                canExecuteTeamWorkflows: true,
+                                canDeleteTeamWorkflows: true,
+                                canViewTeamExecutions: true,
+                                canViewTeamFailedExecutions: true,
+                                canViewDLQ: true,
+                                canCreatePersonalKnowledgeBase: true,
+                                canChangeOrgKnowledgeBase: true,
                                 allowedWorkflowIds: []
                             }
                         }
-
                     });
 
                     return { user, status: "APPROVED" as const };
-                })
-
+                });
             }
             if (orgRole === "MEMBER") {
                 if (!inviteToken) {
@@ -210,14 +233,23 @@ export class AuthService{
     }
 
     static async login(email:string , passwordPlain:string){
-        const user=await prisma.user.findUnique({
-            where:{email}
+        const cleanEmail = (email || '').trim();
+        const user = await prisma.user.findFirst({
+            where: {
+                email: {
+                    equals: cleanEmail,
+                    mode: 'insensitive'
+                }
+            }
         });
         if(!user){
               // Check if there is a pending registration request for this email
-            const pendingRequest=await prisma.registrationRequest.findUnique({
-                where:{
-                    email
+            const pendingRequest = await prisma.registrationRequest.findFirst({
+                where: {
+                    email: {
+                        equals: cleanEmail,
+                        mode: 'insensitive'
+                    }
                 }
             });
 
@@ -258,18 +290,18 @@ export class AuthService{
             throw new Error("User not found.");
         }
 
-        const permissions = (user.permissions ?? {}) as any;
+        const rawPermissions = (user.permissions ?? {}) as any;
         let enrichedAllowedWorkflows: any[] = [];
 
-        if (Array.isArray(permissions.allowedWorkflowIds) && permissions.allowedWorkflowIds.length > 0) {
-            const ids = permissions.allowedWorkflowIds.map((item: any) => typeof item === 'string' ? item : item.workflowId).filter(Boolean);
+        if (Array.isArray(rawPermissions.allowedWorkflowIds) && rawPermissions.allowedWorkflowIds.length > 0) {
+            const ids = rawPermissions.allowedWorkflowIds.map((item: any) => typeof item === 'string' ? item : item.workflowId).filter(Boolean);
             const workflows = await prisma.workflow.findMany({
                 where: { id: { in: ids } },
                 select: { id: true, name: true, status: true }
             });
             const wfMap = new Map(workflows.map(w => [w.id, w]));
 
-            enrichedAllowedWorkflows = permissions.allowedWorkflowIds.map((item: any) => {
+            enrichedAllowedWorkflows = rawPermissions.allowedWorkflowIds.map((item: any) => {
                 const wfId = typeof item === 'string' ? item : item.workflowId;
                 const wf = wfMap.get(wfId);
                 if (typeof item === 'string') {
@@ -297,16 +329,47 @@ export class AuthService{
             });
         }
 
+        // Full explicit permission resolution for ADMIN, SINGLE, and MEMBER
+        const isElevated = user.role === 'ADMIN' || user.role === 'SINGLE';
+        const resolvedPermissions = isElevated
+            ? {
+                canCreateWorkflow: true,
+                canViewTeamWorkflows: true,
+                canEditTeamWorkflows: true,
+                canRenameTeamWorkflows: true,
+                canExecuteTeamWorkflows: true,
+                canDeleteTeamWorkflows: true,
+                canViewTeamExecutions: true,
+                canViewTeamFailedExecutions: true,
+                canViewDLQ: true,
+                canCreatePersonalKnowledgeBase: true,
+                canChangeOrgKnowledgeBase: true,
+                allowedWorkflowIds: [],
+                scopedWorkflows: enrichedAllowedWorkflows,
+              }
+            : {
+                canCreateWorkflow: rawPermissions.canCreateWorkflow !== false,
+                canViewTeamWorkflows: !!rawPermissions.canViewTeamWorkflows,
+                canEditTeamWorkflows: !!rawPermissions.canEditTeamWorkflows,
+                canRenameTeamWorkflows: !!rawPermissions.canRenameTeamWorkflows,
+                canExecuteTeamWorkflows: !!rawPermissions.canExecuteTeamWorkflows,
+                canDeleteTeamWorkflows: !!rawPermissions.canDeleteTeamWorkflows,
+                canViewTeamExecutions: !!rawPermissions.canViewTeamExecutions,
+                canViewTeamFailedExecutions: !!rawPermissions.canViewTeamFailedExecutions,
+                canViewDLQ: !!(rawPermissions.canViewDLQ ?? rawPermissions.canViewTeamFailedExecutions),
+                canCreatePersonalKnowledgeBase: !!rawPermissions.canCreatePersonalKnowledgeBase,
+                canChangeOrgKnowledgeBase: !!rawPermissions.canChangeOrgKnowledgeBase,
+                allowedWorkflowIds: Array.isArray(rawPermissions.allowedWorkflowIds) ? rawPermissions.allowedWorkflowIds : [],
+                scopedWorkflows: enrichedAllowedWorkflows,
+              };
+
         return {
             id: user.id,
             email: user.email,
             role: user.role,
             organizationId: user.organizationId,
             organizationName: user.organization?.name || "Workspace",
-            permissions: {
-                ...permissions,
-                scopedWorkflows: enrichedAllowedWorkflows,
-            },
+            permissions: resolvedPermissions,
             isTwoFactorEnabled: !!user.isTwoFactorEnabled,
             remainingBackupCodesCount: Array.isArray(user.backupCodes) ? user.backupCodes.length : 0,
             createdAt: user.createdAt
@@ -342,16 +405,21 @@ export class AuthService{
     }
 
     /**
-     * Checks if an account exists and whether Two-Factor Authentication is active.
+     * Checks if an account exists and whether Two-Factor Authentication is active (case-insensitive).
      */
     static async check2FAStatus(email: string) {
-        const cleanEmail = (email || '').trim().toLowerCase();
+        const cleanEmail = (email || '').trim();
         if (!cleanEmail) {
             return { isTwoFactorEnabled: false };
         }
 
-        const user = await prisma.user.findUnique({
-            where: { email: cleanEmail },
+        const user = await prisma.user.findFirst({
+            where: {
+                email: {
+                    equals: cleanEmail,
+                    mode: 'insensitive'
+                }
+            },
             select: { id: true, isTwoFactorEnabled: true }
         });
 
@@ -528,8 +596,13 @@ export class AuthService{
             throw new Error(passValidation.error);
         }
 
-        const user = await prisma.user.findUnique({
-            where: { email: cleanEmail }
+        const user = await prisma.user.findFirst({
+            where: {
+                email: {
+                    equals: cleanEmail,
+                    mode: 'insensitive'
+                }
+            }
         });
 
         // If user does not exist or has not enabled 2FA, reject with professional instructions

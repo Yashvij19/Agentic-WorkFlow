@@ -17,6 +17,43 @@ interface PropertiesPanelProps {
   onReplayNode: (nodeId: string, resumeDownstream: boolean) => void; 
 }
 
+function CommaSeparatedInput({
+  value,
+  onChange,
+  className,
+  placeholder,
+}: {
+  value: string[] | undefined;
+  onChange: (items: string[]) => void;
+  className?: string;
+  placeholder?: string;
+}) {
+  const [text, setText] = useState(() => (Array.isArray(value) ? value.join(', ') : ''));
+
+  useEffect(() => {
+    const currentParsed = text.split(',').map((k) => k.trim()).filter(Boolean);
+    const valueArr = Array.isArray(value) ? value : [];
+    if (JSON.stringify(currentParsed) !== JSON.stringify(valueArr)) {
+      setText(valueArr.join(', '));
+    }
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      value={text}
+      onChange={(e) => {
+        const val = e.target.value;
+        setText(val);
+        const parsed = val.split(',').map((k) => k.trim()).filter(Boolean);
+        onChange(parsed);
+      }}
+      className={className}
+      placeholder={placeholder}
+    />
+  );
+}
+
 export default function PropertiesPanel({
   selectedNode,
   onUpdateNodeData,
@@ -493,6 +530,61 @@ export default function PropertiesPanel({
               </p>
             </div>
 
+            {/* Generative AI Answer Toggle */}
+            <div className="p-3 bg-black/35 rounded-xl border border-white/5 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="block text-[9px] font-bold text-slate-200 uppercase tracking-widest">
+                    Generate AI Answer
+                  </span>
+                  <span className="text-[8px] text-slate-400">Via Google Gemini LLM</span>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={data.generation?.enabled !== false}
+                  onClick={() => {
+                    const currentEnabled = data.generation?.enabled !== false;
+                    onUpdateNodeData(id, {
+                      ...data,
+                      generation: {
+                        ...(data.generation || {}),
+                        enabled: !currentEnabled,
+                      },
+                    });
+                  }}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    data.generation?.enabled !== false ? 'bg-purple-600' : 'bg-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                      data.generation?.enabled !== false ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 pt-0.5">
+                {data.generation?.enabled !== false ? (
+                  <span className="text-[8px] font-mono font-semibold text-emerald-300 bg-emerald-950/40 border border-emerald-700/40 px-1.5 py-0.5 rounded">
+                    AI Synthesis Active
+                  </span>
+                ) : (
+                  <span className="text-[8px] font-mono font-semibold text-slate-400 bg-slate-900/60 border border-slate-700/40 px-1.5 py-0.5 rounded">
+                    Retrieval Only (No Key Needed)
+                  </span>
+                )}
+              </div>
+
+              <p className="text-[9px] text-[#8492B4] leading-relaxed">
+                {data.generation?.enabled !== false
+                  ? 'Gemini generates a synthesized response using retrieved context (requires GEMINI_API_KEY in Settings).'
+                  : 'Retrieval only: returns matched context and citation bibliography without calling Gemini.'}
+              </p>
+            </div>
+
             <div>
               <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-2 pl-1">Use Case Profile</label>
               <select
@@ -538,6 +630,34 @@ export default function PropertiesPanel({
             {/* Advanced Settings Drawer */}
             {data.mode === 'advanced' && (
               <div className="space-y-3.5 p-3 bg-black/30 rounded-xl border border-white/5">
+                {/* 0. Query Analysis Strategy */}
+                <div>
+                  <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
+                    Query Analysis Strategy
+                  </label>
+                  <select
+                    value={data.queryAnalysis?.strategy || 'rule'}
+                    onChange={(e) =>
+                      onUpdateNodeData(id, {
+                        ...data,
+                        queryAnalysis: {
+                          ...(data.queryAnalysis || {}),
+                          strategy: e.target.value as any,
+                        },
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white focus:outline-none"
+                  >
+                    <option value="rule">Fast Rule-Based / Regex (~1ms)</option>
+                    <option value="llm">LLM Classification (Gemini ~1.5s)</option>
+                  </select>
+                  <p className="text-[8px] text-[#687493] mt-1 pl-1">
+                    {data.queryAnalysis?.strategy === 'llm'
+                      ? 'Categorizes query intent using Gemini LLM upfront.'
+                      : 'Instant heuristic and keyword extraction with zero API roundtrip.'}
+                  </p>
+                </div>
+
                 {/* 1. Retrieval Mode */}
                 <div>
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">Retrieval Mode</label>
@@ -580,10 +700,10 @@ export default function PropertiesPanel({
                 {/* 3. Phase 2: Reranker Strategy Selector */}
                 <div className="pt-2 border-t border-white/[0.05]">
                   <label className="block text-[9px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1 pl-1">
-                    Cross-Encoder Reranker
+                    Reranker Strategy
                   </label>
                   <select
-                    value={data.reranker?.provider || 'none'}
+                    value={data.reranker?.provider || 'simple_lexical'}
                     onChange={(e) =>
                       onUpdateNodeData(id, {
                         ...data,
@@ -595,9 +715,9 @@ export default function PropertiesPanel({
                     }
                     className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white"
                   >
-                    <option value="none">Disabled (Use RRF Scores)</option>
+                    <option value="simple_lexical">Simple Lexical (Fast Exact Match - Default)</option>
                     <option value="local_cross_encoder">Local Cross-Encoder (Neural Attention)</option>
-                    <option value="simple_lexical">Simple Lexical (Fast Exact Match)</option>
+                    <option value="none">Disabled (Use RRF Scores)</option>
                   </select>
                 </div>
 
@@ -715,6 +835,83 @@ export default function PropertiesPanel({
                     <option value="none">No Citations</option>
                   </select>
                 </div>
+
+                {/* 9. Generative LLM Parameters */}
+                {data.generation?.enabled !== false ? (
+                  <div className="pt-2 border-t border-white/[0.05] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[9px] font-bold text-purple-300 uppercase tracking-widest pl-1">
+                        Gemini Model & Synthesis
+                      </label>
+                      <span className="text-[8px] font-mono text-emerald-400 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/40">
+                        Active
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-wider mb-1 pl-1">
+                        Model
+                      </label>
+                      <select
+                        value={data.generation?.model || 'gemini-2.5-flash'}
+                        onChange={(e) =>
+                          onUpdateNodeData(id, {
+                            ...data,
+                            generation: { ...(data.generation || {}), model: e.target.value },
+                          })
+                        }
+                        className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white"
+                      >
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast & Recommended)</option>
+                        <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Reasoning)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-wider mb-1 pl-1">
+                        Temperature: {data.generation?.temperature ?? 0.2}
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={data.generation?.temperature ?? 0.2}
+                        onChange={(e) =>
+                          onUpdateNodeData(id, {
+                            ...data,
+                            generation: { ...(data.generation || {}), temperature: parseFloat(e.target.value) },
+                          })
+                        }
+                        className="w-full accent-purple-500 cursor-pointer"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-wider mb-1 pl-1">
+                        Custom System Prompt (Optional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={data.generation?.systemPrompt || ''}
+                        onChange={(e) =>
+                          onUpdateNodeData(id, {
+                            ...data,
+                            generation: { ...(data.generation || {}), systemPrompt: e.target.value },
+                          })
+                        }
+                        className="w-full px-3 py-2 bg-black/45 border border-white/10 rounded-lg text-xs text-white placeholder-slate-500 focus:border-purple-500/50 focus:outline-none font-sans"
+                        placeholder="You are an expert AI assistant..."
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pt-2 border-t border-white/[0.05] p-2.5 bg-slate-900/50 rounded-lg border border-slate-700/40 text-center">
+                    <span className="text-[10px] text-slate-400">
+                      Generative synthesis is disabled. Node outputs retrieval context & citations only.
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1066,13 +1263,9 @@ export default function PropertiesPanel({
                 <label className="block text-[9px] font-bold text-orange-400 uppercase tracking-widest mb-1.5 pl-1">
                   Required JSON Keys (comma-separated)
                 </label>
-                <input
-                  type="text"
-                  value={Array.isArray(data.requiredKeys) ? data.requiredKeys.join(', ') : (data.requiredKeys || '')}
-                  onChange={(e) => {
-                    const keys = e.target.value.split(',').map((k) => k.trim()).filter(Boolean);
-                    onUpdateNodeData(id, { ...data, requiredKeys: keys });
-                  }}
+                <CommaSeparatedInput
+                  value={data.requiredKeys}
+                  onChange={(keys) => onUpdateNodeData(id, { ...data, requiredKeys: keys })}
                   className="w-full px-3.5 py-2.5 bg-black/50 border border-orange-500/20 rounded-xl text-xs font-mono text-orange-200 outline-none"
                   placeholder="summary, status, items"
                 />
@@ -1113,13 +1306,9 @@ export default function PropertiesPanel({
                 <label className="block text-[9px] font-bold text-red-400 uppercase tracking-widest mb-1.5 pl-1">
                   Prohibited Keywords (comma-separated)
                 </label>
-                <input
-                  type="text"
-                  value={Array.isArray(data.bannedWords) ? data.bannedWords.join(', ') : (data.bannedWords || '')}
-                  onChange={(e) => {
-                    const words = e.target.value.split(',').map((w) => w.trim()).filter(Boolean);
-                    onUpdateNodeData(id, { ...data, bannedWords: words });
-                  }}
+                <CommaSeparatedInput
+                  value={data.bannedWords}
+                  onChange={(words) => onUpdateNodeData(id, { ...data, bannedWords: words })}
                   className="w-full px-3.5 py-2.5 bg-black/50 border border-red-500/20 rounded-xl text-xs font-mono text-red-200 outline-none"
                   placeholder="confidential, competitor_name, internal_only"
                 />

@@ -35,6 +35,21 @@ const server: FastifyInstance = Fastify({
         },
 });
 
+// Gracefully accept empty JSON request bodies (e.g. POST requests without payload)
+server.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body: string, done) => {
+    try {
+        if (!body || body.trim() === '') {
+            done(null, {});
+            return;
+        }
+        const json = JSON.parse(body);
+        done(null, json);
+    } catch (err: any) {
+        err.statusCode = 400;
+        done(err, undefined);
+    }
+});
+
 server.addHook('onRequest', async (request, reply) => {
     const origin = process.env.FRONTEND_URL || '*';
     reply.header('Access-Control-Allow-Origin', origin);
@@ -53,25 +68,25 @@ server.addHook('onRequest', async (request, reply) => {
     }
 });
 
-declare module '@fastify/jwt'{
-    interface FastifyJWT{
-        payload:{
-            id:string , 
-            organizationId:string,
-            email:string,
-            role:string
+declare module '@fastify/jwt' {
+    interface FastifyJWT {
+        payload: {
+            id: string,
+            organizationId: string,
+            email: string,
+            role: string
         };
-        user:{
-            id:string,
-            organizationId:string,
-            email:string,
-            role:string
+        user: {
+            id: string,
+            organizationId: string,
+            email: string,
+            role: string
 
         };
     }
 }
 
-declare module 'fastify'{
+declare module 'fastify' {
     interface FastifyInstance {
         authenticate(request: any, reply: any): Promise<void>;
     }
@@ -80,10 +95,10 @@ declare module 'fastify'{
 // Register plugins
 
 server.register(fastifyJwt, {
-  secret: jwtSecret,
-  sign: {
-    expiresIn: process.env.JWT_EXPIRES_IN || '4h'
-  }
+    secret: jwtSecret,
+    sign: {
+        expiresIn: process.env.JWT_EXPIRES_IN || '4h'
+    }
 });
 
 server.register(webSocket);
@@ -113,17 +128,17 @@ server.register(fastifyRateLimit, {
 
 
 // A simple health check route to verify the server is breathing (exempt from rate limits)
-server.get('/health', { config: { rateLimit: false } }, async(request , reply)=>{
+server.get('/health', { config: { rateLimit: false } }, async (request, reply) => {
     return {
-        status:'ok',
-        message:"API Gateway is online"
+        status: 'ok',
+        message: "API Gateway is online"
     };
 })
 
 
 // Create a reusable authentication middleware hook
-server.decorate('authenticate' , async function (request:any, reply:any){
-    try{
+server.decorate('authenticate', async function (request: any, reply: any) {
+    try {
         await request.jwtVerify();
         if (!request.user || !request.user.id) {
             return reply.code(401).send({
@@ -143,7 +158,7 @@ server.decorate('authenticate' , async function (request:any, reply:any){
         // Synchronize fresh DB role in case user was demoted or promoted
         request.user.role = dbUser.role;
         request.user.organizationId = dbUser.organizationId;
-    }catch(err){
+    } catch (err) {
         return reply.code(401).send({
             error: 'Unauthorized: Invalid or expired credentials'
         });
@@ -230,10 +245,19 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 const start = async () => {
     try {
         const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
-        await server.listen({
-            port: PORT, 
-            host: '0.0.0.0'
-        });
+        const host = process.env.HOST || '::';
+        try {
+            await server.listen({
+                port: PORT,
+                host: host
+            });
+        } catch (bindErr) {
+            server.log.warn(`Could not bind to host '${host}', falling back to '0.0.0.0'`);
+            await server.listen({
+                port: PORT,
+                host: '0.0.0.0'
+            });
+        }
 
         server.log.info(`Server is ready to accept connections on port ${PORT}.`);
 

@@ -70,9 +70,20 @@ export default function RagNode({ id, data }: NodeProps) {
       <div className="p-4 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Query</span>
-          <span className="text-[8px] font-mono text-purple-400 bg-purple-950/30 border border-purple-800/30 px-1.5 py-0.5 rounded">
-            {profile}
-          </span>
+          <div className="flex items-center gap-1">
+            <span className="text-[8px] font-mono text-purple-400 bg-purple-950/30 border border-purple-800/30 px-1.5 py-0.5 rounded">
+              {profile}
+            </span>
+            {data.generation?.enabled !== false ? (
+              <span className="text-[8px] font-mono text-emerald-300 bg-emerald-950/40 border border-emerald-800/40 px-1.5 py-0.5 rounded" title="Generative LLM Synthesis Active">
+                AI Gen
+              </span>
+            ) : (
+              <span className="text-[8px] font-mono text-slate-400 bg-slate-900/60 border border-slate-700/40 px-1.5 py-0.5 rounded" title="Retrieval Only">
+                Retrieval
+              </span>
+            )}
+          </div>
         </div>
 
         <p className="text-xs text-slate-200 line-clamp-3 bg-black/40 p-2.5 rounded-xl border border-white/[0.05] font-sans">

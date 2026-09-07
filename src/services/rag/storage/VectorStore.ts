@@ -44,10 +44,23 @@ export class VectorStore {
         });
         // 3. Compute dot-product similarity in memory
         const candidates: RetrievalResult[] = [];
+        let dimensionMismatchLogged = false;
+
         for (const chunk of dbChunks) {
             if (!chunk.embeddingJson) continue;
             try {
                 const chunkVector: number[] = JSON.parse(chunk.embeddingJson);
+                if (queryVector.length !== chunkVector.length) {
+                    if (!dimensionMismatchLogged) {
+                        console.warn(
+                            `⚠️ [VectorStore] Embedding dimension mismatch: query vector is ${queryVector.length}-dim, but stored chunks are ${chunkVector.length}-dim.\n` +
+                            `   Explanation: Documents were indexed with a different model than the current query model (e.g. Gemini 768-dim vs Local bge-m3 1024-dim).\n` +
+                            `   Resolution: Please re-upload/ingest your document using the current EMBEDDING_PROVIDER, or switch EMBEDDING_PROVIDER to match.`
+                        );
+                        dimensionMismatchLogged = true;
+                    }
+                    continue;
+                }
                 const score = this.cosineSimilarity(queryVector, chunkVector);
                 if (score >= minScore) {
                     candidates.push({

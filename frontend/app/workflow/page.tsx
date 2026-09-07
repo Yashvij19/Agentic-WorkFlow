@@ -395,9 +395,6 @@ export default function WorkflowsDashboard() {
                   DLQ
                 </Link>
               )}
-              <span className="text-[10px] font-semibold tracking-wider uppercase text-[#687493] cursor-not-allowed select-none">
-                Runs
-              </span>
             </div>
           </div>
 

@@ -9,6 +9,9 @@ export interface RagNodeConfig {
   knowledgeBaseScope?: 'ORGANIZATION' | 'PERSONAL';
   knowledgeSourceId?: string;
   useCaseProfile?: UseCaseProfile;
+  queryAnalysis?: {
+    strategy?: 'rule' | 'llm';
+  };
   ingestion?: any;
   retrieval?: any;
   reranker?: any;
@@ -45,6 +48,9 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
     const ragConfig: RAGConfiguration = {
       mode: config?.mode || 'simple',
       useCaseProfile: config?.useCaseProfile || 'GENERAL_QA',
+      queryAnalysis: config?.queryAnalysis || {
+        strategy: 'rule',
+      },
       ingestion: config?.ingestion || {
         parser: 'auto',
         chunkSize: 800,
@@ -59,7 +65,7 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
         minScore: 0.3,
       },
       reranker: config?.reranker || {
-        provider: 'none',
+        provider: 'simple_lexical',
         topN: 5,
       },
       context: config?.context || {
@@ -67,12 +73,12 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
         maxTokens: 4000,
         citationMode: 'inline',
       },
-      generation: config?.generation || {
-        enabled: true,
-        provider: 'gemini',
-        model: 'gemini-2.5-flash',
-        temperature: 0.2,
-        systemPrompt: '',
+      generation: {
+        enabled: config?.generation?.enabled !== undefined ? config.generation.enabled : true,
+        provider: config?.generation?.provider || 'gemini',
+        model: config?.generation?.model || 'gemini-2.5-flash',
+        temperature: config?.generation?.temperature ?? 0.2,
+        systemPrompt: config?.generation?.systemPrompt || '',
       },
     };
 
@@ -109,6 +115,7 @@ export class RagNode implements INodeExecutor<RagNodeConfig> {
         retrievedCount: ragResult.retrievedCount,
         latencyMs: ragResult.latencyMs,
         traceId: ragResult.traceId,
+        generationEnabled: ragConfig.generation.enabled,
       },
       metrics: {
         durationMs,

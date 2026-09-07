@@ -1,9 +1,10 @@
 // frontend/app/document/page.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { FileText, Upload, Zap, Network, GitFork, ArrowRight, Layers, Workflow, Search, CheckCircle2, AlertCircle, Lock, ShieldAlert } from 'lucide-react';
 import { API_URL } from '../../utils/config';
 import { Loader } from '../../components/Loader';
 import Swal from 'sweetalert2';
@@ -41,6 +42,7 @@ interface TestQueryResult {
   rerankedCount?: number;
   hasGraphContext?: boolean;
   latencyMs: number;
+  generationEnabled?: boolean;
   context: {
     contextText: string;
     citations: Array<{
@@ -56,12 +58,17 @@ interface TestQueryResult {
 }
 
 export default function DocumentKnowledgePage() {
+  const router = useRouter();
   const { toast } = useToast();
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [activeKbScopeTab, setActiveKbScopeTab] = useState<'ALL' | 'ORGANIZATION' | 'PERSONAL'>('ALL');
-  const [selectedKbFilter, setSelectedKbFilter] = useState<string>('ALL');
-  const [isLoading, setIsLoading] = useState(true);
+  const [selectedKbFilter, setSelectedKbFilter] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Search filter states
+  const [kbSearchQuery, setKbSearchQuery] = useState('');
+  const [docSearchQuery, setDocSearchQuery] = useState('');
   
   // Create Knowledge Base Modal State
   const [isCreateKbModalOpen, setIsCreateKbModalOpen] = useState(false);
@@ -79,11 +86,70 @@ export default function DocumentKnowledgePage() {
   // Playground test state
   const [testQuery, setTestQuery] = useState('');
   const [testTargetKbId, setTestTargetKbId] = useState<string>('');
-  const [rerankerChoice, setRerankerChoice] = useState<'none' | 'local_cross_encoder' | 'simple_lexical'>('local_cross_encoder');
+  const [queryAnalysisChoice, setQueryAnalysisChoice] = useState<'rule' | 'llm'>('rule');
+  const [rerankerChoice, setRerankerChoice] = useState<'none' | 'local_cross_encoder' | 'simple_lexical'>('simple_lexical');
   const [contextStrategyChoice, setContextStrategyChoice] = useState<'top_chunks' | 'parent_child' | 'neighbors'>('parent_child');
+  const [isGenerationEnabled, setIsGenerationEnabled] = useState<boolean>(true);
   const [isTesting, setIsTesting] = useState(false);
   const [queryResult, setQueryResult] = useState<TestQueryResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+
+  // User Role & Permissions State
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userPermissions, setUserPermissions] = useState<any>(null);
+
+  const canManageOrgKb =
+    userRole === 'ADMIN' ||
+    userRole === 'SINGLE' ||
+    userPermissions?.canChangeOrgKnowledgeBase === true;
+
+  // Helper for friendly permission error modal & toast
+  const showPermissionAlert = (title: string, message: string, contextAdvice?: string) => {
+    Swal.fire({
+      title: `<span class="text-base font-bold text-slate-100 flex items-center justify-center gap-2">
+        <svg class="w-5 h-5 text-amber-400 inline-block" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        ${title}
+      </span>`,
+      html: `
+        <div class="text-left space-y-3 font-sans pt-1">
+          <p class="text-xs text-slate-200 leading-relaxed font-medium">${message}</p>
+          <div class="p-3 bg-white/[0.04] border border-white/10 rounded-xl text-[11px] text-slate-400 space-y-1.5 leading-relaxed">
+            <span class="font-semibold text-purple-300 block">Why am I seeing this?</span>
+            <p>${contextAdvice || 'Organization knowledge bases and their documents are shared across your entire team. Only organization administrators or members with explicit management permissions can modify them.'}</p>
+          </div>
+          <p class="text-[11px] text-slate-400">💡 <em>Contact your organization administrator if you need this document or knowledge base modified.</em></p>
+        </div>
+      `,
+      confirmButtonText: 'Understood',
+      confirmButtonColor: '#8B5CF6',
+      background: '#080D1D',
+      color: '#F5F7FF',
+      customClass: {
+        popup: 'border border-white/10 rounded-2xl shadow-2xl',
+      },
+    });
+  };
+
+  const handleActionError = (err: any, fallbackTitle: string) => {
+    const rawMsg = err?.message || String(err);
+    const isPermissionError =
+      rawMsg.includes('Access Denied') ||
+      rawMsg.includes('permission') ||
+      rawMsg.includes('Only administrators') ||
+      rawMsg.includes('cannot delete') ||
+      rawMsg.includes('cannot upload');
+
+    if (isPermissionError) {
+      showPermissionAlert('Permission Required', rawMsg);
+      toast.error('🔒 Access Restricted: Administrator permissions required.');
+    } else {
+      toast.error(`${fallbackTitle}: ${rawMsg}`);
+    }
+  };
 
   // Auth helper
   const getAuthToken = () => {
@@ -97,50 +163,115 @@ export default function DocumentKnowledgePage() {
   const fetchKnowledgeBases = async () => {
     try {
       const token = getAuthToken();
+      if (!token) return;
+
       const res = await fetch(`${API_URL}/api/rag/knowledge-bases`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setKnowledgeBases(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        setKnowledgeBases(list);
+        setTargetUploadKbId((prev) => {
+          if (!prev && list.length > 0) return list[0].id;
+          return prev;
+        });
+      } else if (res.status === 401) {
+        router.push('/login');
       }
     } catch (err: any) {
-      console.error(err);
+      console.warn('Could not fetch knowledge bases:', err?.message || err);
     }
   };
 
   // 2. Fetch Documents from Backend
-  const fetchDocuments = async () => {
+  const fetchDocuments = async (overrideKbId?: string) => {
+    const token = getAuthToken();
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
+
+    const targetKbId = overrideKbId !== undefined ? overrideKbId : selectedKbFilter;
+    if (!targetKbId) {
+      setDocuments([]);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const token = getAuthToken();
-      const url = selectedKbFilter && selectedKbFilter !== 'ALL'
-        ? `${API_URL}/api/rag/documents?knowledgeSourceId=${selectedKbFilter}`
-        : `${API_URL}/api/rag/documents`;
-
+      const url = `${API_URL}/api/rag/documents?knowledgeSourceId=${targetKbId}`;
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!res.ok) {
-        throw new Error('Failed to fetch documents');
+        if (res.status === 401) {
+          router.push('/login');
+          return;
+        }
+        throw new Error(`Failed to fetch documents (${res.status})`);
       }
 
       const data = await res.json();
       setDocuments(data.documents || []);
     } catch (err: any) {
-      console.error(err);
+      console.warn('Could not fetch documents:', err?.message || err);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
+    const token = getAuthToken();
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const parsed = JSON.parse(userStr);
+        setCurrentUser(parsed);
+        setUserRole(parsed.role || null);
+        setCurrentUserId(parsed.id || parsed.userId || null);
+        if (parsed.permissions) {
+          setUserPermissions(typeof parsed.permissions === 'string' ? JSON.parse(parsed.permissions) : parsed.permissions);
+        }
+      } catch (e) {
+        console.warn('Failed to parse user session:', e);
+      }
+    }
+
+    // Refresh live profile & permissions
+    fetch(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) {
+          if (data.role) setUserRole(data.role);
+          if (data.id) setCurrentUserId(data.id);
+          if (data.permissions) {
+            setUserPermissions(typeof data.permissions === 'string' ? JSON.parse(data.permissions) : data.permissions);
+          }
+        }
+      })
+      .catch(() => {});
+
     fetchKnowledgeBases();
   }, []);
 
   useEffect(() => {
-    fetchDocuments();
+    const token = getAuthToken();
+    if (token && selectedKbFilter) {
+      fetchDocuments();
+    } else if (!selectedKbFilter) {
+      setDocuments([]);
+      setIsLoading(false);
+    }
   }, [selectedKbFilter]);
 
   // 3. Handle Create Knowledge Base
@@ -175,14 +306,43 @@ export default function DocumentKnowledgePage() {
       setIsCreateKbModalOpen(false);
       fetchKnowledgeBases();
     } catch (err: any) {
-      toast.error(`Creation Failed: ${err.message}`);
+      handleActionError(err, 'Creation Failed');
     } finally {
       setIsCreatingKb(false);
     }
   };
 
   // 4. Handle Delete Knowledge Base
-  const handleDeleteKnowledgeBase = async (kbId: string, kbName: string) => {
+  const handleDeleteKnowledgeBase = async (
+    kbId: string,
+    kbName: string,
+    kbScope?: string,
+    createdByUserId?: string
+  ) => {
+    if (kbScope === 'ORGANIZATION' && userRole === 'MEMBER') {
+      showPermissionAlert(
+        'Admin Permission Required',
+        'Only Organization Administrators can delete organization-level knowledge bases.',
+        'Deleting an entire organization knowledge base permanently erases all contained documents and embeddings for all team members. To prevent accidental data loss, this action is restricted to administrators.'
+      );
+      return;
+    }
+
+    if (
+      kbScope === 'PERSONAL' &&
+      userRole === 'MEMBER' &&
+      createdByUserId &&
+      currentUserId &&
+      createdByUserId !== currentUserId
+    ) {
+      showPermissionAlert(
+        'Permission Required',
+        'You can only delete your own personal knowledge bases.',
+        'This knowledge base belongs to another member and cannot be deleted by other users.'
+      );
+      return;
+    }
+
     const result = await Swal.fire({
       title: 'Delete Knowledge Base?',
       text: `Are you sure you want to delete "${kbName}"? All contained documents and chunks will be deleted.`,
@@ -194,6 +354,9 @@ export default function DocumentKnowledgePage() {
       cancelButtonColor: '#1E293B',
       background: '#080D1D',
       color: '#F5F7FF',
+      customClass: {
+        popup: 'border border-white/10 rounded-2xl shadow-2xl',
+      },
     });
 
     if (!result.isConfirmed) return;
@@ -205,23 +368,38 @@ export default function DocumentKnowledgePage() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error || 'Failed to delete knowledge base.');
       }
 
       toast.success(`Knowledge base "${kbName}" removed.`);
-      if (selectedKbFilter === kbId) setSelectedKbFilter('ALL');
+      if (selectedKbFilter === kbId) setSelectedKbFilter('');
       if (targetUploadKbId === kbId) setTargetUploadKbId('');
       fetchKnowledgeBases();
       fetchDocuments();
     } catch (err: any) {
-      toast.error(`Delete Failed: ${err.message}`);
+      handleActionError(err, 'Delete Failed');
     }
   };
 
   const handleUpload = async () => {
     if (!selectedFile) return;
+    if (!targetUploadKbId) {
+      toast.error('Please select or create a destination Knowledge Base first.');
+      return;
+    }
+
+    const targetKb = knowledgeBases.find((k) => k.id === targetUploadKbId);
+    if (targetKb?.scope === 'ORGANIZATION' && userRole === 'MEMBER' && !canManageOrgKb) {
+      showPermissionAlert(
+        'Upload Permission Required',
+        'You do not have permission to upload documents to organization knowledge bases.',
+        'Adding documents to organization-wide knowledge bases requires Administrator privileges or explicit "Manage Knowledge Base" permission.'
+      );
+      return;
+    }
+
     setIsUploading(true);
 
     try {
@@ -241,7 +419,7 @@ export default function DocumentKnowledgePage() {
               name: selectedFile.name,
               mimeType: selectedFile.type || 'text/plain',
               source: selectedFile.name,
-              knowledgeSourceId: targetUploadKbId || undefined,
+              knowledgeSourceId: targetUploadKbId,
               base64Buffer,
               config: {
                 ingestion: {
@@ -253,17 +431,21 @@ export default function DocumentKnowledgePage() {
             }),
           });
 
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             throw new Error(data.error || 'Upload failed');
           }
 
           toast.success(`"${selectedFile.name}" indexed into knowledge base.`);
           setSelectedFile(null);
-          fetchDocuments();
+          if (selectedKbFilter !== targetUploadKbId) {
+            setSelectedKbFilter(targetUploadKbId);
+          } else {
+            fetchDocuments();
+          }
           fetchKnowledgeBases();
         } catch (postErr: any) {
-          toast.error(`Ingestion Failed: ${postErr.message}`);
+          handleActionError(postErr, 'Ingestion Failed');
         } finally {
           setIsUploading(false);
         }
@@ -271,13 +453,22 @@ export default function DocumentKnowledgePage() {
 
       reader.readAsDataURL(selectedFile);
     } catch (err: any) {
-      toast.error(`Error: ${err.message}`);
+      handleActionError(err, 'Upload Failed');
       setIsUploading(false);
     }
   };
 
   // 3. Delete Document
-  const handleDeleteDocument = async (id: string, name: string) => {
+  const handleDeleteDocument = async (id: string, name: string, docKbScope?: string) => {
+    if (docKbScope === 'ORGANIZATION' && userRole === 'MEMBER' && !canManageOrgKb) {
+      showPermissionAlert(
+        'Permission Required',
+        'You do not have permission to delete documents from organization knowledge bases.',
+        'Organization-wide documents are shared with your team. Only organization administrators or members with explicit "Manage Knowledge Base" permissions can remove them.'
+      );
+      return;
+    }
+
     const result = await Swal.fire({
       title: 'Delete Document?',
       text: `Are you sure you want to delete "${name}"? All vector chunks and embeddings will be permanently removed.`,
@@ -289,6 +480,9 @@ export default function DocumentKnowledgePage() {
       cancelButtonColor: '#1E293B',
       background: '#080D1D',
       color: '#F5F7FF',
+      customClass: {
+        popup: 'border border-white/10 rounded-2xl shadow-2xl',
+      },
     });
 
     if (!result.isConfirmed) return;
@@ -302,15 +496,16 @@ export default function DocumentKnowledgePage() {
         },
       });
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error('Failed to delete document');
+        throw new Error(data.error || 'Failed to delete document');
       }
 
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       toast.success(`Document "${name}" removed from knowledge base.`);
       fetchKnowledgeBases();
     } catch (err: any) {
-      toast.error(`Delete Failed: ${err.message}`);
+      handleActionError(err, 'Delete Failed');
     }
   };
 
@@ -335,6 +530,9 @@ export default function DocumentKnowledgePage() {
           query: testQuery,
           metadataFilters: testTargetKbId ? { knowledgeSourceId: testTargetKbId } : undefined,
           config: {
+            queryAnalysis: {
+              strategy: queryAnalysisChoice,
+            },
             retrieval: {
               mode: 'hybrid',
               topK: 10,
@@ -350,6 +548,9 @@ export default function DocumentKnowledgePage() {
               strategy: contextStrategyChoice,
               maxTokens: 4000,
               citationMode: 'inline',
+            },
+            generation: {
+              enabled: isGenerationEnabled,
             },
           },
         }),
@@ -368,10 +569,24 @@ export default function DocumentKnowledgePage() {
     }
   };
 
-  const filteredKnowledgeBases = knowledgeBases.filter((kb) => {
-    if (activeKbScopeTab === 'ALL') return true;
-    return kb.scope === activeKbScopeTab;
-  });
+  const filteredKnowledgeBases = useMemo(() => {
+    return knowledgeBases.filter((kb) => {
+      const matchesScope = activeKbScopeTab === 'ALL' || kb.scope === activeKbScopeTab;
+      const q = kbSearchQuery.toLowerCase().trim();
+      const matchesSearch = !q || kb.name.toLowerCase().includes(q) || (kb.description && kb.description.toLowerCase().includes(q));
+      return matchesScope && matchesSearch;
+    });
+  }, [knowledgeBases, activeKbScopeTab, kbSearchQuery]);
+
+  const filteredDocuments = useMemo(() => {
+    if (!selectedKbFilter) return [];
+    return documents.filter((doc) => {
+      const matchesKb = doc.knowledgeSourceId === selectedKbFilter;
+      const q = docSearchQuery.toLowerCase().trim();
+      const matchesSearch = !q || doc.name.toLowerCase().includes(q);
+      return matchesKb && matchesSearch;
+    });
+  }, [documents, selectedKbFilter, docSearchQuery]);
 
   return (
     <div className="min-h-screen bg-[#030617] text-white flex flex-col font-sans">
@@ -409,13 +624,6 @@ export default function DocumentKnowledgePage() {
             <span>+ New Knowledge Base</span>
           </button>
 
-          <Link
-            href="/workflow"
-            className="text-xs text-purple-400 hover:text-purple-300 font-semibold transition"
-          >
-            Go to Canvas &rarr;
-          </Link>
-
           <UserProfileDropdown />
         </div>
       </header>
@@ -425,80 +633,161 @@ export default function DocumentKnowledgePage() {
         
         {/* Knowledge Base Containers Section */}
         <section className="bg-[#080D1D]/90 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.04] pb-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/[0.04] pb-4">
             <div>
-              <h2 className="font-semibold text-sm text-white">Knowledge Bases</h2>
-              <p className="text-[11px] text-[#98A4C2]">Isolated document collections powering your RAG AI Agents</p>
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold text-sm text-white">Knowledge Bases</h2>
+                <span className="text-[10px] text-purple-300 font-mono bg-purple-950/40 border border-purple-800/30 px-2 py-0.5 rounded-full">
+                  {filteredKnowledgeBases.length} found
+                </span>
+                {selectedKbFilter && (
+                  <button
+                    onClick={() => setSelectedKbFilter('')}
+                    className="text-[10px] text-violet-400 hover:text-violet-300 underline cursor-pointer ml-2"
+                  >
+                    Clear Selection
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-[#98A4C2]">Click a Knowledge Base to filter its documents below and target uploads</p>
             </div>
 
-            {/* Scope Filter Tabs */}
-            <div className="flex items-center gap-1.5 p-1 bg-black/40 border border-white/5 rounded-xl text-xs">
-              {(['ALL', 'ORGANIZATION', 'PERSONAL'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveKbScopeTab(tab)}
-                  className={`px-3 py-1 rounded-lg font-medium transition cursor-pointer ${
-                    activeKbScopeTab === tab
-                      ? 'bg-violet-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {tab === 'ALL' ? 'All' : tab === 'ORGANIZATION' ? 'Organization' : 'Personal'}
-                </button>
-              ))}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              {/* Search Knowledge Bases by Name */}
+              <div className="relative w-full sm:w-56">
+                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search KB by name..."
+                  value={kbSearchQuery}
+                  onChange={(e) => setKbSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500/50"
+                />
+              </div>
+
+              {/* Scope Filter Tabs */}
+              <div className="flex items-center gap-1.5 p-1 bg-black/40 border border-white/5 rounded-xl text-xs shrink-0">
+                {(['ALL', 'ORGANIZATION', 'PERSONAL'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveKbScopeTab(tab)}
+                    className={`px-3 py-1 rounded-lg font-medium transition cursor-pointer ${
+                      activeKbScopeTab === tab
+                        ? 'bg-violet-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {tab === 'ALL' ? 'All' : tab === 'ORGANIZATION' ? 'Organization' : 'Personal'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Knowledge Base Cards Grid */}
+          {/* Knowledge Base Cards Grid with Scrollbar */}
           {filteredKnowledgeBases.length === 0 ? (
-            <div className="text-center py-6 text-xs text-slate-500 italic">
-              No knowledge bases found for this view. Create one to organize documents.
+            <div className="text-center py-8 text-xs text-slate-500 italic">
+              {kbSearchQuery ? 'No knowledge bases match your search.' : 'No knowledge bases found for this view. Create one to organize documents.'}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filteredKnowledgeBases.map((kb) => (
-                <div
-                  key={kb.id}
-                  onClick={() => setSelectedKbFilter(selectedKbFilter === kb.id ? 'ALL' : kb.id)}
-                  className={`p-4 rounded-xl border transition cursor-pointer relative flex flex-col justify-between ${
-                    selectedKbFilter === kb.id
-                      ? 'bg-violet-950/25 border-violet-500/50 shadow-md shadow-violet-500/10'
-                      : 'bg-black/30 border-white/[0.04] hover:border-white/15'
-                  }`}
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-white truncate">{kb.name}</span>
-                      <span
-                        className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold border ${
-                          kb.scope === 'ORGANIZATION'
-                            ? 'bg-blue-950/40 text-blue-300 border-blue-800/30'
-                            : 'bg-purple-950/40 text-purple-300 border-purple-800/30'
-                        }`}
-                      >
-                        {kb.scope}
-                      </span>
-                    </div>
-                    {kb.description && (
-                      <p className="text-[11px] text-[#98A4C2] line-clamp-2">{kb.description}</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/[0.04] text-[10px] text-slate-400">
-                    <span>{kb._count?.documents || 0} documents</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteKnowledgeBase(kb.id, kb.name);
+            <div className="max-h-72 overflow-y-auto pr-1.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {filteredKnowledgeBases.map((kb) => {
+                  const isSelected = selectedKbFilter === kb.id;
+                  return (
+                    <div
+                      key={kb.id}
+                      onClick={() => {
+                        const nextId = isSelected ? '' : kb.id;
+                        setSelectedKbFilter(nextId);
+                        if (nextId) {
+                          setTargetUploadKbId(nextId);
+                          setTestTargetKbId(nextId);
+                        }
                       }}
-                      className="text-slate-500 hover:text-red-400 p-1 transition cursor-pointer"
-                      title="Delete Knowledge Base"
+                      className={`p-4 rounded-xl border transition cursor-pointer relative flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-violet-950/40 border-violet-500 ring-2 ring-violet-500/40 shadow-lg shadow-violet-500/15'
+                          : 'bg-black/30 border-white/[0.04] hover:border-white/15'
+                      }`}
                     >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-white truncate">{kb.name}</span>
+                          <div className="flex items-center gap-1.5">
+                            {isSelected && (
+                              <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                <CheckCircle2 className="w-2.5 h-2.5" /> Selected
+                              </span>
+                            )}
+                            <span
+                              className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold border ${
+                                kb.scope === 'ORGANIZATION'
+                                  ? 'bg-blue-950/40 text-blue-300 border-blue-800/30'
+                                  : 'bg-purple-950/40 text-purple-300 border-purple-800/30'
+                              }`}
+                            >
+                              {kb.scope}
+                            </span>
+                          </div>
+                        </div>
+                        {kb.description && (
+                          <p className="text-[11px] text-[#98A4C2] line-clamp-2">{kb.description}</p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/[0.04] text-[10px] text-slate-400">
+                        <span className={isSelected ? 'text-violet-300 font-semibold' : ''}>
+                          {kb._count?.documents || 0} documents
+                        </span>
+                        {(() => {
+                          const canDeleteKb =
+                            userRole === 'ADMIN' ||
+                            userRole === 'SINGLE' ||
+                            (userRole === 'MEMBER' && kb.scope === 'PERSONAL' && (!kb.createdByUserId || kb.createdByUserId === currentUserId));
+
+                          return canDeleteKb ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteKnowledgeBase(kb.id, kb.name, kb.scope, kb.createdByUserId);
+                              }}
+                              className="text-slate-400 hover:text-red-400 p-1 transition cursor-pointer flex items-center gap-1 text-[10px]"
+                              title="Delete Knowledge Base"
+                            >
+                              Delete
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (kb.scope === 'ORGANIZATION') {
+                                  showPermissionAlert(
+                                    'Admin Permission Required',
+                                    'Only Organization Administrators can delete organization-level knowledge bases.',
+                                    'Deleting an entire organization knowledge base permanently erases all contained documents and embeddings for all team members. To prevent accidental data loss, this action is restricted to administrators.'
+                                  );
+                                } else {
+                                  showPermissionAlert(
+                                    'Permission Required',
+                                    'You can only delete your own personal knowledge bases.',
+                                    'This knowledge base belongs to another member and cannot be deleted by other users.'
+                                  );
+                                }
+                              }}
+                              className="text-slate-500 hover:text-amber-400 p-1 transition cursor-pointer flex items-center gap-1 text-[10px]"
+                              title="Permission Required to Delete"
+                            >
+                              <Lock className="w-2.5 h-2.5" />
+                              <span>Protected</span>
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </section>
@@ -530,29 +819,45 @@ export default function DocumentKnowledgePage() {
                     <input
                       type="file"
                       accept=".pdf,.docx,.doc,.txt,.md,.xlsx,.pptx"
-                      disabled={isUploading}
+                      disabled={isUploading || knowledgeBases.length === 0}
                       onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                      className="block w-full text-xs text-[#98A4C2] file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-[11px] file:font-semibold file:bg-purple-600/20 file:text-purple-300 hover:file:bg-purple-600/35 transition file:cursor-pointer"
+                      className="block w-full text-xs text-[#98A4C2] file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-[11px] file:font-semibold file:bg-purple-600/20 file:text-purple-300 hover:file:bg-purple-600/35 transition file:cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     />
 
                     {/* Target Knowledge Base Selector */}
                     <div>
                       <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
-                        Destination Knowledge Base
+                        Destination Knowledge Base (Required)
                       </label>
                       <select
                         value={targetUploadKbId}
                         onChange={(e) => setTargetUploadKbId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none"
+                        disabled={knowledgeBases.length === 0 || isUploading}
+                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-[11px] text-purple-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                       >
-                        <option value="">-- General / Default --</option>
-                        {knowledgeBases.map((kb) => (
-                          <option key={kb.id} value={kb.id} className="bg-[#080D1D] text-slate-200">
-                            [{kb.scope}] {kb.name}
-                          </option>
-                        ))}
+                        {knowledgeBases.length === 0 ? (
+                          <option value="" disabled>-- No Knowledge Bases Created --</option>
+                        ) : (
+                          <>
+                            <option value="" disabled>-- Select a Knowledge Base --</option>
+                            {knowledgeBases.map((kb) => (
+                              <option key={kb.id} value={kb.id} className="bg-[#080D1D] text-slate-200">
+                                [{kb.scope}] {kb.name}
+                              </option>
+                            ))}
+                          </>
+                        )}
                       </select>
                     </div>
+
+                    {knowledgeBases.length === 0 && (
+                      <div className="p-2.5 bg-amber-950/30 border border-amber-500/30 rounded-xl text-amber-200 text-xs flex items-start gap-2">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-[10px] text-amber-200/90 leading-relaxed">
+                          Please create a Knowledge Base first using the <strong>+ New Knowledge Base</strong> button before uploading documents.
+                        </p>
+                      </div>
+                    )}
                     
                     {/* Chunking Strategy Option */}
                     <div>
@@ -583,7 +888,7 @@ export default function DocumentKnowledgePage() {
 
                   <button
                     onClick={handleUpload}
-                    disabled={!selectedFile || isUploading}
+                    disabled={!selectedFile || isUploading || !targetUploadKbId || knowledgeBases.length === 0}
                     className="w-full sm:w-auto mt-4 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-purple-600/20 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isUploading ? (
@@ -609,7 +914,9 @@ export default function DocumentKnowledgePage() {
                         System Ready
                       </div>
                       <p className="text-[10px] text-[#687493] leading-relaxed">
-                        Select a file to begin vector indexing into the chosen Knowledge Base.
+                        {knowledgeBases.length === 0
+                          ? 'Create a Knowledge Base to enable document ingestion.'
+                          : 'Select a file to begin vector indexing into the chosen Knowledge Base.'}
                       </p>
                     </div>
                   )}
@@ -619,35 +926,84 @@ export default function DocumentKnowledgePage() {
 
             {/* Documents Table Card */}
             <div className="bg-[#080D1D]/90 border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl">
-              <div className="flex items-center justify-between mb-4 border-b border-white/[0.05] pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-white/[0.05] pb-3">
                 <div className="flex items-center gap-2">
                   <h2 className="text-xs font-bold text-slate-100 uppercase tracking-widest">
-                    Indexed Documents ({documents.length})
+                    Indexed Documents ({filteredDocuments.length})
                   </h2>
-                  {selectedKbFilter !== 'ALL' && (
-                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-mono">
-                      Filtered
+                  {selectedKbFilter && (
+                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-mono flex items-center gap-1">
+                      <span>Selected KB:</span>
+                      <span className="font-bold text-white truncate max-w-[140px]">
+                        {knowledgeBases.find((k) => k.id === selectedKbFilter)?.name || 'KB'}
+                      </span>
+                      <button
+                        onClick={() => setSelectedKbFilter('')}
+                        className="ml-1 text-slate-400 hover:text-white cursor-pointer"
+                        title="Clear Selection"
+                      >
+                        ✕
+                      </button>
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={fetchDocuments}
-                  className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer"
-                >
-                  Refresh ⟳
-                </button>
+
+                <div className="flex items-center gap-2.5">
+                  {/* Search Ingested Documents */}
+                  <div className="relative w-full sm:w-44">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search docs..."
+                      value={docSearchQuery}
+                      onChange={(e) => setDocSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-2.5 py-1 bg-black/40 border border-white/10 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500/50"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => fetchDocuments()}
+                    disabled={!selectedKbFilter}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 transition font-mono cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Refresh ⟳
+                  </button>
+                </div>
               </div>
 
-              {isLoading ? (
-                <div className="text-center py-8 text-xs text-slate-500 font-mono">Loading knowledge base...</div>
-              ) : documents.length === 0 ? (
+              {!selectedKbFilter ? (
+                <div className="text-center py-12 px-4 border border-dashed border-white/10 rounded-xl bg-black/20 flex flex-col items-center justify-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xs font-semibold text-slate-200">No Knowledge Base Selected</h3>
+                  <p className="text-[11px] text-slate-400 max-w-sm">
+                    Select a Knowledge Base from the collection above to view its ingested documents.
+                  </p>
+                </div>
+              ) : isLoading ? (
+                <div className="text-center py-8 text-xs text-slate-500 font-mono">Loading documents...</div>
+              ) : filteredDocuments.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-500">
-                  No documents found for this filter.
+                  {docSearchQuery
+                    ? 'No documents match your search query.'
+                    : 'No documents found in this Knowledge Base. Upload a document to begin.'}
                 </div>
               ) : (
-                <div className="space-y-2.5">
-                  {documents.map((doc) => {
+                <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                  {filteredDocuments.map((doc) => {
                     const kb = knowledgeBases.find((k) => k.id === doc.knowledgeSourceId);
+                    const isOrgDoc = kb?.scope === 'ORGANIZATION';
+                    const isOtherMemberPersonalDoc =
+                      kb?.scope === 'PERSONAL' &&
+                      Boolean(kb?.createdByUserId && currentUserId && kb.createdByUserId !== currentUserId);
+                    const canDeleteDoc =
+                      userRole === 'ADMIN' ||
+                      userRole === 'SINGLE' ||
+                      (userRole === 'MEMBER' && (isOrgDoc ? canManageOrgKb : !isOtherMemberPersonalDoc));
+
                     return (
                       <div
                         key={doc.id}
@@ -676,15 +1032,35 @@ export default function DocumentKnowledgePage() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleDeleteDocument(doc.id, doc.name)}
-                            className="p-1.5 hover:bg-red-950/30 text-slate-500 hover:text-red-400 rounded-lg transition cursor-pointer"
-                            title="Delete Document"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                          </button>
+                          {canDeleteDoc ? (
+                            <button
+                              onClick={() => handleDeleteDocument(doc.id, doc.name, kb?.scope)}
+                              className="p-1.5 hover:bg-red-950/30 text-slate-400 hover:text-red-400 rounded-lg transition cursor-pointer"
+                              title="Delete Document"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                showPermissionAlert(
+                                  'Permission Required',
+                                  isOrgDoc
+                                    ? 'You do not have permission to delete documents from organization knowledge bases.'
+                                    : 'You do not have permission to delete documents from another member\'s personal knowledge base.',
+                                  isOrgDoc
+                                    ? 'Organization-wide documents are shared across your entire team. Only organization administrators or members with explicit "Manage Knowledge Base" permissions can remove them.'
+                                    : 'This document belongs to another member\'s private personal knowledge base and cannot be deleted by other users.'
+                                )
+                              }
+                              className="p-1.5 bg-white/[0.03] hover:bg-amber-500/10 text-slate-500 hover:text-amber-400 border border-white/5 rounded-lg transition cursor-pointer"
+                              title="Permission Required to Delete"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -736,8 +1112,22 @@ export default function DocumentKnowledgePage() {
                   />
                 </div>
 
-                {/* Reranker & Context Expansion Grid */}
-                <div className="grid grid-cols-2 gap-2">
+                {/* Query Controls Grid: Analysis, Reranker, Context */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
+                      Query Analysis
+                    </label>
+                    <select
+                      value={queryAnalysisChoice}
+                      onChange={(e) => setQueryAnalysisChoice(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
+                    >
+                      <option value="rule">Rule-Based (~1ms)</option>
+                      <option value="llm">LLM Gemini (~1.5s)</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block text-[8px] font-bold text-[#98A4C2] uppercase tracking-widest mb-1">
                       Reranker
@@ -747,9 +1137,9 @@ export default function DocumentKnowledgePage() {
                       onChange={(e) => setRerankerChoice(e.target.value as any)}
                       className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
                     >
+                      <option value="simple_lexical">Simple Lexical (Fast)</option>
                       <option value="local_cross_encoder">Cross-Encoder (Neural)</option>
-                      <option value="simple_lexical">Simple Lexical</option>
-                      <option value="none">None (RRF)</option>
+                      <option value="none">None (RRF Only)</option>
                     </select>
                   </div>
 
@@ -762,11 +1152,54 @@ export default function DocumentKnowledgePage() {
                       onChange={(e) => setContextStrategyChoice(e.target.value as any)}
                       className="w-full px-2.5 py-1.5 bg-black/45 border border-white/10 rounded-xl text-[11px] text-white focus:border-purple-500/50 focus:outline-none cursor-pointer"
                     >
-                      <option value="parent_child">Parent-Child (Full Context)</option>
-                      <option value="neighbors">Neighbor Window (Stitched)</option>
-                      <option value="top_chunks">Top Chunks (Default)</option>
+                      <option value="parent_child">Parent-Child</option>
+                      <option value="neighbors">Neighbor Window</option>
+                      <option value="top_chunks">Top Chunks</option>
                     </select>
                   </div>
+                </div>
+
+                {/* Generative AI Answer Toggle */}
+                <div className="p-3 bg-black/40 border border-white/[0.06] rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">
+                        Generate AI Answer (Gemini)
+                      </span>
+                      {isGenerationEnabled ? (
+                        <span className="text-[8px] font-mono text-emerald-300 bg-emerald-950/40 border border-emerald-700/40 px-1.5 py-0.5 rounded">
+                          LLM Active
+                        </span>
+                      ) : (
+                        <span className="text-[8px] font-mono text-slate-400 bg-slate-900/60 border border-slate-700/40 px-1.5 py-0.5 rounded">
+                          Retrieval Only
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Modern Toggle Switch */}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isGenerationEnabled}
+                      onClick={() => setIsGenerationEnabled(!isGenerationEnabled)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        isGenerationEnabled ? 'bg-purple-600' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          isGenerationEnabled ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <p className="text-[9px] text-[#8492B4] leading-relaxed">
+                    {isGenerationEnabled
+                      ? '⚡ Generates a grounded response synthesized by Gemini (requires GEMINI_API_KEY in Settings).'
+                      : '📄 Retrieval-only: returns ranked document chunks and citation resources without calling Gemini.'}
+                  </p>
                 </div>
 
                 <button
@@ -775,10 +1208,10 @@ export default function DocumentKnowledgePage() {
                   className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/20 transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   {isTesting ? (
-                    'Searching, Reranking & Expanding...'
+                    isGenerationEnabled ? 'Searching, Reranking & Generating Answer...' : 'Searching & Ranking Chunks...'
                   ) : (
                     <>
-                      <span>Test Retrieval & Answer</span>
+                      <span>{isGenerationEnabled ? 'Test Retrieval & Answer' : 'Test Document Retrieval'}</span>
                       <Zap className="w-3.5 h-3.5" />
                     </>
                   )}
@@ -786,32 +1219,66 @@ export default function DocumentKnowledgePage() {
               </form>
 
               {testError && (
-                <div className="mt-4 text-xs text-red-400 bg-red-950/30 border border-red-800/30 p-3 rounded-xl">
-                  {testError}
+                <div className="mt-4 text-xs text-red-400 bg-red-950/30 border border-red-800/30 p-3 rounded-xl space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-red-300">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />
+                    <span>Query Execution Failed</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">{testError}</p>
+                  {testError.includes('GEMINI_API_KEY') && (
+                    <div className="pt-1">
+                      <Link
+                        href="/setting"
+                        className="inline-flex items-center gap-1 text-[10px] text-purple-300 hover:text-purple-200 underline font-medium"
+                      >
+                        Go to Settings &rarr; Configure Gemini API Key
+                      </Link>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Test Result Display */}
               {queryResult && (
                 <div className="mt-4 space-y-3.5 flex-1 overflow-y-auto max-h-[480px] pr-1">
-                  {/* Answer Box */}
-                  <div className="bg-black/50 border border-purple-500/30 p-4 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-bold text-purple-300 uppercase tracking-wider">
-                        Synthesized Answer
-                      </span>
-                      <span className="text-[9px] text-slate-400 font-mono">{queryResult.latencyMs}ms</span>
+                  {/* If generative answer enabled and answer exists */}
+                  {queryResult.answer ? (
+                    <div className="bg-black/50 border border-purple-500/30 p-4 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          Synthesized Answer
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono">{queryResult.latencyMs}ms</span>
+                      </div>
+                      <p className="text-xs text-slate-100 leading-relaxed whitespace-pre-wrap font-sans">
+                        {queryResult.answer}
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-100 leading-relaxed whitespace-pre-wrap">
-                      {queryResult.answer}
-                    </p>
-                  </div>
+                  ) : (
+                    /* Retrieval-only notification banner when generative answer is disabled */
+                    <div className="bg-slate-900/60 border border-slate-700/50 p-3.5 rounded-xl space-y-1.5 text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                          Retrieval-Only Mode Active
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono">{queryResult.latencyMs}ms</span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        Retrieved <strong className="text-white">{queryResult.retrievedCount} chunks</strong> across <strong className="text-white">{queryResult.context.citations.length} sources</strong>. Generative synthesis is disabled.
+                      </p>
+                      <p className="text-[9px] text-[#8492B4]">
+                        Need an AI-synthesized answer? Enable &quot;Generate AI Answer&quot; above and ensure your <code className="bg-black/40 px-1 py-0.5 rounded text-purple-300 font-mono">GEMINI_API_KEY</code> is configured in <Link href="/setting" className="text-purple-400 hover:underline">Settings</Link>.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Citations & Chunks */}
-                  {queryResult.context.citations.length > 0 && (
+                  {queryResult.context.citations.length > 0 ? (
                     <div className="space-y-2">
                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">
-                        Final Context Chunks ({queryResult.context.citations.length})
+                        Matched Resources & Chunks ({queryResult.context.citations.length})
                       </span>
 
                       <div className="space-y-2">
@@ -834,6 +1301,10 @@ export default function DocumentKnowledgePage() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-400 p-3 text-center border border-white/[0.04] rounded-xl">
+                      No matching documents found for this query.
                     </div>
                   )}
                 </div>
