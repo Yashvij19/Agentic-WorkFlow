@@ -527,7 +527,18 @@ const processWorkflow = async (job: Job) => {
       } else {
         // Fallback for simple/unregistered pass-through nodes
         console.warn(`⚠️ [Worker] No executor found for type '${node.type}'. Using raw node data.`);
-        stepResult = node.data?.output || null;
+        let rawOutput = node.data?.output ?? null;
+        if (typeof rawOutput === 'string') {
+          const trimmed = rawOutput.trim();
+          if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+              rawOutput = JSON.parse(trimmed);
+            } catch {
+              // Retain original string if invalid JSON
+            }
+          }
+        }
+        stepResult = rawOutput;
       }
 
 

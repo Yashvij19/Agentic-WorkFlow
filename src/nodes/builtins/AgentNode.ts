@@ -1,51 +1,51 @@
-import { INodeExecutor  , ExecutionContext , NodeExecutionResult } from "../types";
+import { INodeExecutor, ExecutionContext, NodeExecutionResult } from "../types";
 import { injectVariables } from "../../utils/interpolation";
 import { executeAiAgent } from "../../utils/aiAgent";
 
-
-export interface AgentNodeConfig{
-    promt?:string;
-    model?:string;
-    temperature?:string;
+export interface AgentNodeConfig {
+  prompt?: string;
+  promt?: string;
+  systemInstruction?: string;
+  model?: string;
+  temperature?: string;
 }
 
-export class AgentNode implements INodeExecutor<AgentNodeConfig>{
+export class AgentNode implements INodeExecutor<AgentNodeConfig> {
+  public readonly type = 'agent';
+  public readonly name = "AI Agent";
+  public readonly description = 'Executes generative AI prompts using Gemini with dynamic variable injection.';
 
+  public async execute(config: AgentNodeConfig, inputs: any, ctx: ExecutionContext): Promise<NodeExecutionResult<any>> {
+    const startTime = Date.now();
+    const rawPrompt = config?.prompt || config?.promt || '';
 
-    public readonly type='agent';
-    public readonly name="AI Agent";
-    public readonly description='Executes generative AI prompts using Gemini with dynamic variable injection.';
+    // 1. Variable Injection: Replace {{node_1.output}} with actual data from memory
+    let hydratedPrompt = injectVariables(rawPrompt, ctx.workflowContext);
+    if (ctx.correctionFeedback) {
+      ctx.emitTelemetry('RUNNING', `🤖 Agent applying self-correction feedback...`);
+      hydratedPrompt += `\n\n${ctx.correctionFeedback}`;
+    }
+    ctx.emitTelemetry('RUNNING', `Agent prompt prepared: "${hydratedPrompt.slice(0, 80)}..."`);
 
-    public async execute(config: AgentNodeConfig, inputs: any, ctx: ExecutionContext): Promise<NodeExecutionResult<any>> {
-        const startTime=Date.now();
-        const rawPrompt=config?.promt||'';
+    // 2. Fetch credentials from context (passed by worker)
+    const encryptedKey = ctx.credentials?.['GEMINI_API_KEY'];
 
-        // 1. Variable Injection: Replace {{node_1.output}} with actual data from memory
+    if (!encryptedKey) {
+      throw new Error(
+        `[AgentNode] Missing 'GEMINI_API_KEY' credential for organization '${ctx.orgId}'. Please configure your Gemini API key in Settings > Credentials to run AI Agent steps.`
+      );
+    }
 
-        let hydratedPrompt = injectVariables(rawPrompt, ctx.workflowContext);
-          if (ctx.correctionFeedback) {
-          ctx.emitTelemetry('RUNNING', `🤖 Agent applying self-correction feedback...`);
-            hydratedPrompt += `\n\n${ctx.correctionFeedback}`;
-        }
-         ctx.emitTelemetry('RUNNING', `Agent prompt prepared: "${hydratedPrompt.slice(0, 80)}..."`);
-
-        // 2. Fetch credentials from context (passed by worker)
-        const encryptedKey = ctx.credentials?.['GEMINI_API_KEY'];
-
-        if (!encryptedKey) {
-          throw new Error(
-            `[AgentNode] Missing 'GEMINI_API_KEY' credential for organization '${ctx.orgId}'. Please configure your Gemini API key in Settings > Credentials to run AI Agent steps.`
-          );
-        }
-
-     // 3. Call AI Service
+    // 3. Call AI Service
     ctx.emitTelemetry('RUNNING', `Calling Gemini API...`);
     const aiResponse = await executeAiAgent({
       prompt: hydratedPrompt,
       encryptedApiKey: encryptedKey,
+      model: config?.model,
+      systemInstruction: config?.systemInstruction,
     });
 
-    const durationMs =Date.now() - startTime;
+    const durationMs = Date.now() - startTime;
 
     // 4. Return standard result
     return {
@@ -56,8 +56,5 @@ export class AgentNode implements INodeExecutor<AgentNodeConfig>{
         tokensUsed: aiResponse.usage?.totalTokens || 0,
       }
     };
-
-
-    
-    }
+  }
 }
