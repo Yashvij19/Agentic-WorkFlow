@@ -4,12 +4,14 @@ interface ExecuteAgentParams {
   prompt: string;
   encryptedApiKey: string;
   model?: string;
+  systemInstruction?: string;
 }
 
 export async function executeAiAgent({
   prompt,
   encryptedApiKey,
   model = "gemini-2.5-flash",
+  systemInstruction,
 }: ExecuteAgentParams) {
   // 1. Decrypt API Key
   const apiKey = decryptCredential(encryptedApiKey);
@@ -27,6 +29,7 @@ export async function executeAiAgent({
       contents: prompt,
       config: {
         systemInstruction:
+          systemInstruction?.trim() ||
           "You are an autonomous worker agent in a workflow execution engine. Provide clear, concise, and direct answers.",
       },
     });

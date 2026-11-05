@@ -87,7 +87,7 @@ export default function PropertiesPanel({
   const { id, type, data } = selectedNode;
 
   return (
-    <div className="w-80 bg-[#080D1D]/75 border-l border-white/[0.08] p-6 flex flex-col justify-between z-10 backdrop-blur-md overflow-y-auto relative transition-all duration-300">
+    <div className="w-[440px] xl:w-[480px] shrink-0 bg-[#080D1D]/85 border-l border-white/[0.08] p-6 flex flex-col justify-between z-10 backdrop-blur-md overflow-y-auto relative transition-all duration-300">
       {/* Visual Glass Edge highlight */}
       <div className="absolute top-0 bottom-0 left-0 w-[1px] bg-gradient-to-b from-transparent via-white/5 to-transparent pointer-events-none" />
 
