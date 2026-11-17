@@ -127,13 +127,66 @@ server.register(fastifyRateLimit, {
 });
 
 
-// A simple health check route to verify the server is breathing (exempt from rate limits)
+// A comprehensive health check route that actively pings Redis and Database
+// Acts as both a diagnostic endpoint and an activity keep-alive trigger (exempt from rate limits)
 server.get('/health', { config: { rateLimit: false } }, async (request, reply) => {
-    return {
-        status: 'ok',
+    let redisStatus = 'healthy';
+    let dbStatus = 'healthy';
+
+    try {
+        const pingRes = await redisConnection.ping();
+        if (pingRes !== 'PONG') redisStatus = 'degraded';
+    } catch (err: any) {
+        redisStatus = `unreachable: ${err.message}`;
+    }
+
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+    } catch (err: any) {
+        dbStatus = `unreachable: ${err.message}`;
+    }
+
+    const isHealthy = redisStatus === 'healthy' && dbStatus === 'healthy';
+
+    return reply.code(isHealthy ? 200 : 503).send({
+        status: isHealthy ? 'ok' : 'degraded',
+        timestamp: new Date().toISOString(),
+        uptime: Math.floor(process.uptime()),
+        services: {
+            redis: redisStatus,
+            database: dbStatus,
+        },
         message: "API Gateway is online"
-    };
-})
+    });
+});
+
+// 💓 Heartbeat & Keep-Alive Watchdog
+// Regularly pings Redis to prevent idle timeout and keep connections warm
+const HEARTBEAT_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes
+
+const heartbeatInterval = setInterval(async () => {
+    try {
+        const pong = await redisConnection.ping();
+        server.log.debug(`[Keep-Alive] Redis ping: ${pong}`);
+    } catch (err: any) {
+        server.log.warn(`[Keep-Alive] Failed to ping Redis: ${err.message}`);
+    }
+
+    // If deployed on Render or any cloud host providing an external URL, ping the public health route
+    const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
+    if (externalUrl) {
+        try {
+            const healthUrl = `${externalUrl.replace(/\/$/, '')}/health`;
+            await fetch(healthUrl);
+            server.log.debug(`[Keep-Alive] Self-ping dispatched to ${healthUrl}`);
+        } catch (err: any) {
+            server.log.warn(`[Keep-Alive] Failed to dispatch self-ping to ${externalUrl}: ${err.message}`);
+        }
+    }
+}, HEARTBEAT_INTERVAL_MS);
+
+// Allow the process to exit cleanly without waiting for this interval
+heartbeatInterval.unref();
 
 
 // Create a reusable authentication middleware hook
@@ -208,6 +261,7 @@ const gracefulShutdown = async (signal: string) => {
     forceExitTimer.unref();
 
     try {
+        clearInterval(heartbeatInterval);
         await server.close();
         server.log.info('Closed Fastify HTTP server.');
 
